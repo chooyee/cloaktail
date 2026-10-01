@@ -10,7 +10,7 @@
     "dev": "node --watch src/server.js",
     "admin": "node scripts/admin-user.js"
   },
-  "license": "ISC",
+  "license": "MIT",
   "type": "module",
   "dependencies": {
     "@node-saml/passport-saml": "^5.1.1",
