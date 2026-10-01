@@ -21,13 +21,15 @@ export function sendError(req, res, status, message) {
 }
 
 // Loads the current user's app roles/permissions on every request, so role changes apply immediately.
-export function userContext(req, res, next) {
+export async function userContext(req, res, next) {
   res.locals.currentPath = req.path;
   res.locals.user = req.user || null;
-  const permissions = req.user ? getUserPermissions(req.user.username) : new Set();
+  const [permissions, roles] = req.user
+    ? await Promise.all([getUserPermissions(req.user.username), getUserRoles(req.user.username)])
+    : [new Set(), []];
   req.can = (perm) => permissions.has(perm);
   res.locals.can = req.can;
-  res.locals.userRoles = req.user ? getUserRoles(req.user.username) : [];
+  res.locals.userRoles = roles;
   next();
 }
 
@@ -35,11 +37,11 @@ export function userContext(req, res, next) {
 // Expires after ADMIN_SESSION_MS, and ends as soon as the account is deleted or its password changes.
 const ADMIN_SESSION_MS = 2 * 60 * 60 * 1000;
 
-export function adminContext(req, res, next) {
+export async function adminContext(req, res, next) {
   const signedIn = req.session?.admin;
   let admin = null;
   if (signedIn) {
-    const account = getAdminAccount(signedIn.username);
+    const account = await getAdminAccount(signedIn.username);
     if (account && account.password_changed_at === signedIn.passwordChangedAt && Date.now() - signedIn.since < ADMIN_SESSION_MS) {
       admin = { username: account.username, mustChangePassword: Boolean(account.must_change_password) };
     } else {

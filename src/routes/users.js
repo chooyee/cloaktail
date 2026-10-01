@@ -45,7 +45,7 @@ usersRouter.get('/', requirePermission('users.view'), async (req, res) => {
     keycloakAdmin.listUsers({ search, first: (page - 1) * PAGE_SIZE, max: PAGE_SIZE }),
     keycloakAdmin.countUsers({ search }),
   ]);
-  const rolesByUser = getRolesForUsernames(users.map((u) => u.username));
+  const rolesByUser = await getRolesForUsernames(users.map((u) => u.username));
   const data = {
     title: 'Users',
     users: users.map((u) => ({ ...u, appRoles: rolesByUser.get(u.username.toLowerCase()) || [] })),
@@ -61,8 +61,8 @@ usersRouter.get('/', requirePermission('users.view'), async (req, res) => {
 
 // ---------- create ----------
 
-usersRouter.get('/new', requirePermission('users.create'), (req, res) => {
-  res.render('pages/users/new', { title: 'New user', roles: listRoles(), values: { enabled: true, temporary: true }, error: null });
+usersRouter.get('/new', requirePermission('users.create'), async (req, res) => {
+  res.render('pages/users/new', { title: 'New user', roles: await listRoles(), values: { enabled: true, temporary: true }, error: null });
 });
 
 usersRouter.post('/', requirePermission('users.create'), async (req, res) => {
@@ -76,8 +76,8 @@ usersRouter.post('/', requirePermission('users.create'), async (req, res) => {
     temporary: req.body.temporary === 'on',
     roleIds: toArray(req.body.roleIds).map(Number),
   };
-  const renderForm = (error) =>
-    res.status(isHtmx(req) ? 200 : 422).render('pages/users/new', { title: 'New user', roles: listRoles(), values, error });
+  const renderForm = async (error) =>
+    res.status(isHtmx(req) ? 200 : 422).render('pages/users/new', { title: 'New user', roles: await listRoles(), values, error });
 
   if (!USERNAME_RE.test(values.username)) return renderForm('Username must be 3-64 characters: letters, digits, . _ @ -');
   if (values.email && !EMAIL_RE.test(values.email)) return renderForm('Enter a valid email address.');
@@ -94,8 +94,8 @@ usersRouter.post('/', requirePermission('users.create'), async (req, res) => {
     throw err;
   }
 
-  upsertUser({ username: values.username, keycloakId: id, email: values.email, firstName: values.firstName, lastName: values.lastName });
-  if (req.can('users.assign_roles') && values.roleIds.length) setUserRoles(values.username, values.roleIds);
+  await upsertUser({ username: values.username, keycloakId: id, email: values.email, firstName: values.firstName, lastName: values.lastName });
+  if (req.can('users.assign_roles') && values.roleIds.length) await setUserRoles(values.username, values.roleIds);
   redirect(req, res, `/users/${id}?created=1`);
 });
 
@@ -104,12 +104,15 @@ usersRouter.post('/', requirePermission('users.create'), async (req, res) => {
 usersRouter.get('/:id', requirePermission('users.view'), async (req, res) => {
   const kcUser = await loadUser(req, res);
   if (!kcUser) return;
+  const [localUser, appRoles, roles] = await Promise.all([
+    getLocalUser(kcUser.username), getUserRoles(kcUser.username), listRoles(),
+  ]);
   res.render('pages/users/edit', {
     title: kcUser.username,
     kcUser,
-    localUser: getLocalUser(kcUser.username),
-    appRoles: getUserRoles(kcUser.username),
-    roles: listRoles(),
+    localUser,
+    appRoles,
+    roles,
     created: 'created' in req.query,
   });
 });
@@ -136,7 +139,7 @@ usersRouter.post('/:id/profile', requirePermission('users.edit'), async (req, re
     if (err instanceof KeycloakError && err.status < 500) return render({ error: err.message });
     throw err;
   }
-  upsertUser({ username: kcUser.username, keycloakId: kcUser.id, ...changes });
+  await upsertUser({ username: kcUser.username, keycloakId: kcUser.id, ...changes });
 
   if (kcUser.enabled && !changes.enabled) {
     // Disabled: end their Keycloak SSO sessions and their sessions in this app.
@@ -151,17 +154,17 @@ usersRouter.post('/:id/profile', requirePermission('users.edit'), async (req, re
 usersRouter.post('/:id/roles', requirePermission('users.assign_roles'), async (req, res) => {
   const kcUser = await loadUser(req, res);
   if (!kcUser) return;
-  const roles = listRoles();
+  const roles = await listRoles();
   const roleIds = toArray(req.body.roleIds).map(Number).filter((id) => roles.some((r) => r.id === id));
-  const render = (locals) =>
-    res.render('fragments/user-roles', { kcUser, roles, appRoles: getUserRoles(kcUser.username), ...locals });
+  const render = async (locals) =>
+    res.render('fragments/user-roles', { kcUser, roles, appRoles: await getUserRoles(kcUser.username), ...locals });
 
   const adminRole = roles.find((r) => r.name === 'admin');
-  if (isSelf(req, kcUser.username) && getUserRoles(kcUser.username).some((r) => r.name === 'admin') && !roleIds.includes(adminRole.id)) {
+  if (isSelf(req, kcUser.username) && (await getUserRoles(kcUser.username)).some((r) => r.name === 'admin') && !roleIds.includes(adminRole.id)) {
     return render({ error: 'You cannot remove the admin role from yourself.' });
   }
-  setUserRoles(kcUser.username, roleIds);
-  render({ message: 'Roles updated. Changes apply on the user\'s next request.' });
+  await setUserRoles(kcUser.username, roleIds);
+  await render({ message: 'Roles updated. Changes apply on the user\'s next request.' });
 });
 
 // ---------- password ----------
@@ -193,7 +196,7 @@ usersRouter.post('/:id/delete', requirePermission('users.delete'), async (req, r
   await keycloakAdmin.deleteUser(kcUser.id);
   // Their sandbox applications and test users go too.
   await deleteOwnerResources(kcUser.username.toLowerCase());
-  deleteLocalUser(kcUser.username);
+  await deleteLocalUser(kcUser.username);
   await destroySessions((u) => u.username === kcUser.username.toLowerCase());
   redirect(req, res, '/users');
 });

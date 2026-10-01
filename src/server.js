@@ -10,7 +10,7 @@ app.listen(config.port, async () => {
   } else if (!config.keycloak.adminClientSecret) {
     console.warn('The active Keycloak profile has no portal service account secret: sign-up and user pages will fail.');
   }
-  const { active } = getSpKeysView();
+  const { active } = await getSpKeysView();
   if (!active) {
     console.warn(`No SAML signing certificate: sign-in is unavailable until an administrator creates one at ${config.baseUrl}/admin/signing.`);
   } else if (active.daysLeft < 30) {

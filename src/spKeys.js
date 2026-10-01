@@ -17,9 +17,9 @@ export const VALIDITY_YEARS = [1, 2, 3, 5, 10];
 
 const listeners = [];
 export const onSpKeyChange = (fn) => listeners.push(fn);
-function notify() {
+async function notify() {
   for (const fn of listeners) {
-    try { fn(); } catch (err) { console.error('Applying the new signing key failed:', err); }
+    try { await fn(); } catch (err) { console.error('Applying the new signing key failed:', err); }
   }
 }
 
@@ -44,17 +44,16 @@ function describe(row) {
 }
 
 // For the admin page: public details only, never the private key.
-export function getSpKeysView() {
-  const active = getSpKeyRow('active');
-  const pending = getSpKeyRow('pending');
+export async function getSpKeysView() {
+  const [active, pending] = await Promise.all([getSpKeyRow('active'), getSpKeyRow('pending')]);
   return { active: active && describe(active), pending: pending && describe(pending) };
 }
 
 let warnedUnreadable = false;
 
 // The active key pair for signing, or null if none (or it can't be decrypted).
-export function getActiveSpKey() {
-  const row = getSpKeyRow('active');
+export async function getActiveSpKey() {
+  const row = await getSpKeyRow('active');
   if (!row) return null;
   try {
     return { certificate: row.certificate, privateKey: decrypt(row.private_key) };
@@ -94,10 +93,10 @@ export function checkKeyPair(certificatePem, privateKeyPem) {
 // ---------- changing ----------
 
 // A new key becomes active straight away when there is none yet; otherwise it waits as pending.
-function store({ certificate, privateKey }, by) {
-  const status = getSpKeyRow('active') ? 'pending' : 'active';
-  putSpKeyRow(status, { certificate, privateKey: encrypt(privateKey), by });
-  if (status === 'active') notify();
+async function store({ certificate, privateKey }, by) {
+  const status = (await getSpKeyRow('active')) ? 'pending' : 'active';
+  await putSpKeyRow(status, { certificate, privateKey: encrypt(privateKey), by });
+  if (status === 'active') await notify();
   return status;
 }
 
@@ -105,28 +104,28 @@ export async function generateSpKey({ commonName, keySize, years }, by) {
   const notAfterDate = new Date();
   notAfterDate.setFullYear(notAfterDate.getFullYear() + years);
   const pems = await selfsigned.generate([{ name: 'commonName', value: commonName }], { keySize, algorithm: 'sha256', notAfterDate });
-  const status = store({ certificate: pems.cert, privateKey: pems.private }, by);
+  const status = await store({ certificate: pems.cert, privateKey: pems.private }, by);
   console.log(`[admin] ${by} generated a ${keySize}-bit SAML signing key (${status})`);
   return status;
 }
 
-export function importSpKey(certificatePem, privateKeyPem, by) {
+export async function importSpKey(certificatePem, privateKeyPem, by) {
   const checked = checkKeyPair(certificatePem, privateKeyPem);
   if (checked.error) return checked;
-  const status = store(checked, by);
+  const status = await store(checked, by);
   console.log(`[admin] ${by} imported a SAML signing key (${status})`);
   return { error: null, status };
 }
 
-export function activatePendingSpKey(by) {
-  if (!promotePendingSpKey()) return false;
+export async function activatePendingSpKey(by) {
+  if (!(await promotePendingSpKey())) return false;
   console.log(`[admin] ${by} activated the pending SAML signing key`);
-  notify();
+  await notify();
   return true;
 }
 
-export function discardPendingSpKey(by) {
-  deleteSpKeyRow('pending');
+export async function discardPendingSpKey(by) {
+  await deleteSpKeyRow('pending');
   console.log(`[admin] ${by} discarded the pending SAML signing key`);
 }
 
@@ -134,8 +133,8 @@ export function discardPendingSpKey(by) {
 
 // Before keys were stored in the database they were files (npm run gen:sp-cert). On the first
 // start without a stored key, an existing pair becomes the active key.
-function migrateKeyFiles() {
-  if (getSpKeyRow('active')) return;
+async function migrateKeyFiles() {
+  if (await getSpKeyRow('active')) return;
   const { spKeyFile, spCertFile } = config.saml;
   if (!fs.existsSync(spKeyFile) || !fs.existsSync(spCertFile)) return;
   const checked = checkKeyPair(fs.readFileSync(spCertFile, 'utf8'), fs.readFileSync(spKeyFile, 'utf8'));
@@ -143,8 +142,8 @@ function migrateKeyFiles() {
     console.warn(`Not moving ${spKeyFile} into the database: ${checked.error} Generate a key in the admin console instead.`);
     return;
   }
-  putSpKeyRow('active', { certificate: checked.certificate, privateKey: encrypt(checked.privateKey), by: 'migration' });
+  await putSpKeyRow('active', { certificate: checked.certificate, privateKey: encrypt(checked.privateKey), by: 'migration' });
   console.log(`Moved the SAML signing key from ${spKeyFile} and ${spCertFile} into the database. They are no longer read; delete them once you have a backup.`);
 }
 
-migrateKeyFiles();
+await migrateKeyFiles();

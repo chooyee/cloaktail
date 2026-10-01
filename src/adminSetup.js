@@ -10,11 +10,11 @@ import { hashPassword, passwordProblem } from './lib/password.js';
 
 let setupToken = null;
 
-export const setupRequired = () => countAdminAccounts() === 0;
+export const setupRequired = async () => (await countAdminAccounts()) === 0;
 
 // Generated on first need and printed once; kept in memory, so a restart issues a new one.
-export function ensureSetupToken() {
-  if (setupToken || !setupRequired()) return;
+export async function ensureSetupToken() {
+  if (setupToken || !(await setupRequired())) return;
   setupToken = crypto.randomBytes(18).toString('base64url');
   console.log([
     '',
@@ -39,7 +39,7 @@ export function finishSetup() {
 
 // Called once at startup.
 export async function bootstrapAdmin() {
-  if (!setupRequired()) return;
+  if (!(await setupRequired())) return;
   const username = (process.env.ADMIN_BOOTSTRAP_USERNAME || '').trim().toLowerCase();
   const password = process.env.ADMIN_BOOTSTRAP_PASSWORD || '';
   if (username || password) {
@@ -48,7 +48,7 @@ export async function bootstrapAdmin() {
       : 'username must be 3-40 lowercase letters, digits, dots, dashes or underscores.';
     if (problem) {
       console.error(`ADMIN_BOOTSTRAP_USERNAME/PASSWORD ignored: ${problem}`);
-    } else if (createFirstAdminAccount({
+    } else if (await createFirstAdminAccount({
       username,
       passwordHash: await hashPassword(password),
       createdBy: 'bootstrap',
@@ -59,5 +59,5 @@ export async function bootstrapAdmin() {
       return;
     }
   }
-  ensureSetupToken();
+  await ensureSetupToken();
 }

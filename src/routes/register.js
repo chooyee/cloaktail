@@ -83,7 +83,7 @@ registerRouter.post('/', async (req, res) => {
     throw err;
   }
 
-  upsertUser(values);
-  addUserRoleByName(values.username, config.defaultRole);
+  await upsertUser(values);
+  await addUserRoleByName(values.username, config.defaultRole);
   res.redirect(303, '/login?registered');
 });

@@ -229,12 +229,12 @@ export async function deleteSamlClient(kcId) {
 
 // Removes a developer's sandbox clients and test users (used when their account is deleted).
 export async function deleteOwnerResources(owner) {
-  for (const app of listApps({ owner })) {
+  for (const app of await listApps({ owner })) {
     await deleteSamlClient(app.kc_id);
-    deleteApp(app.id);
+    await deleteApp(app.id);
   }
-  for (const tu of listTestUsers(owner)) {
+  for (const tu of await listTestUsers(owner)) {
     await sandboxAdmin.deleteUser(tu.kc_id).catch(ignoreNotFound);
-    deleteTestUser(tu.id);
+    await deleteTestUser(tu.id);
   }
 }

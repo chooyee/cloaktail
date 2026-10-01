@@ -16,13 +16,13 @@
     "@node-saml/passport-saml": "^5.1.1",
     "@xmldom/xmldom": "^0.9.12",
     "basecoat-css": "^1.0.2",
-    "better-sqlite3": "^13.0.3",
     "dotenv": "^18.0.4",
     "ejs": "^6.0.1",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
     "htmx.org": "^2.0.11",
     "passport": "^0.7.0",
+    "pg": "^8.23.1",
     "selfsigned": "^5.5.0"
   },
   "devDependencies": {

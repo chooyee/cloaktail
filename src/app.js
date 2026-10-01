@@ -75,11 +75,12 @@ app.use('/register', registerRouter);
 const landing = (req, res) => res.render('pages/landing', { title: 'SAML SSO, tested before you ship', fullBleed: true });
 app.get('/guide', landing);
 app.get('/disclaimer', (req, res) => res.render('pages/disclaimer', { title: 'Disclaimer' }));
-app.get('/', (req, res, next) => (req.user ? next() : landing(req, res)), requirePermission('dashboard.view'), (req, res) => {
+app.get('/', (req, res, next) => (req.user ? next() : landing(req, res)), requirePermission('dashboard.view'), async (req, res) => {
+  const [appCount, testUserCount] = await Promise.all([countApps(req.user.username), countTestUsers(req.user.username)]);
   res.render('pages/dashboard', {
     title: 'Dashboard',
-    appCount: countApps(req.user.username),
-    testUserCount: countTestUsers(req.user.username),
+    appCount,
+    testUserCount,
     maxApps: config.sandbox.maxAppsPerDeveloper,
     maxTestUsers: config.sandbox.maxTestUsersPerDeveloper,
   });

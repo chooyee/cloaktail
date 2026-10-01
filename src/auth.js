@@ -55,9 +55,9 @@ const createSamlStrategy = (spKey) => new SamlStrategy(
     acceptedClockSkewMs: 5000,
   },
   // Sign-on: Keycloak authenticated the user; record them locally and apply bootstrap roles.
-  (profile, done) => {
+  async (profile, done) => {
     try {
-      const username = upsertUser(
+      const username = await upsertUser(
         {
           username: profile.nameID,
           email: attr(profile, 'email'),
@@ -66,8 +66,8 @@ const createSamlStrategy = (spKey) => new SamlStrategy(
         },
         { login: true },
       );
-      if (config.adminUsers.includes(username)) addUserRoleByName(username, 'admin');
-      if (getUserRoles(username).length === 0) addUserRoleByName(username, config.defaultRole);
+      if (config.adminUsers.includes(username)) await addUserRoleByName(username, 'admin');
+      if ((await getUserRoles(username)).length === 0) await addUserRoleByName(username, config.defaultRole);
 
       done(null, {
         username,
@@ -97,8 +97,8 @@ const createSamlStrategy = (spKey) => new SamlStrategy(
 let samlStrategy = null;
 let spCertificate = null;
 
-function useActiveSettings() {
-  const spKey = getActiveSpKey();
+async function useActiveSettings() {
+  const spKey = await getActiveSpKey();
   if (config.keycloak.configured && spKey) {
     samlStrategy = createSamlStrategy(spKey);
     spCertificate = spKey.certificate;
@@ -110,7 +110,7 @@ function useActiveSettings() {
     passport.unuse('saml');
   }
 }
-useActiveSettings();
+await useActiveSettings();
 onKeycloakSettingsChange(useActiveSettings);
 onSpKeyChange(useActiveSettings);
 

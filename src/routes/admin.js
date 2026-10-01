@@ -17,7 +17,7 @@ import {
 import { config } from '../config.js';
 import { requireAdmin, redirect, sendError } from '../middleware.js';
 
-// Admin console: local administrator accounts (stored in SQLite, not Keycloak) that configure
+// Admin console: local administrator accounts (stored in PostgreSQL, not Keycloak) that configure
 // the portal's Keycloak connection. Local on purpose, so a broken Keycloak setup can be fixed.
 
 export const adminRouter = express.Router();
@@ -69,8 +69,8 @@ function ensureCsrf(req, res) {
 // ---------- first-run setup ----------
 
 // While no administrator exists, every admin page leads to setup (like Keycloak's welcome page).
-adminRouter.use((req, res, next) => {
-  if (req.path === '/setup' || !setupRequired()) return next();
+adminRouter.use(async (req, res, next) => {
+  if (req.path === '/setup' || !(await setupRequired())) return next();
   redirect(req, res, '/admin/setup');
 });
 
@@ -79,15 +79,15 @@ const renderSetup = (res, locals, status = 200) =>
     title: 'Create the administrator', values: {}, error: null, field: null, ...locals,
   });
 
-adminRouter.get('/setup', (req, res) => {
-  if (!setupRequired()) return res.redirect('/admin/login');
-  ensureSetupToken();
+adminRouter.get('/setup', async (req, res) => {
+  if (!(await setupRequired())) return res.redirect('/admin/login');
+  await ensureSetupToken();
   ensureCsrf(req, res);
   renderSetup(res, {});
 });
 
 adminRouter.post('/setup', async (req, res, next) => {
-  if (!setupRequired()) return res.redirect(303, '/admin/login');
+  if (!(await setupRequired())) return res.redirect(303, '/admin/login');
   const values = { username: String(req.body.username || '').trim().toLowerCase() };
   const password = String(req.body.password || '');
   const fail = (error, field, status = 422) => renderSetup(res, { values, error, field }, status);
@@ -104,7 +104,7 @@ adminRouter.post('/setup', async (req, res, next) => {
   if (problem) return fail(problem, 'password');
   if (password !== req.body.confirmPassword) return fail('The passwords don’t match.', 'confirmPassword');
 
-  const created = createFirstAdminAccount({
+  const created = await createFirstAdminAccount({
     username: values.username,
     passwordHash: await hashPassword(password),
     createdBy: 'setup',
@@ -114,7 +114,7 @@ adminRouter.post('/setup', async (req, res, next) => {
   if (!created) return res.redirect(303, '/admin/login');
   finishSetup();
   console.log(`[admin] first administrator "${values.username}" created from ${req.ip}`);
-  startAdminSession(req, getAdminAccount(values.username), (err) => {
+  startAdminSession(req, await getAdminAccount(values.username), (err) => {
     if (err) return next(err);
     res.redirect(303, '/admin/keycloak');
   });
@@ -141,18 +141,18 @@ adminRouter.post('/login', async (req, res, next) => {
 
   if (rateLimited(req.ip)) return fail('Too many sign-in attempts from your network. Try again in 15 minutes.', 429);
 
-  const account = ADMIN_USERNAME_RE.test(username) ? getAdminAccount(username) : null;
+  const account = ADMIN_USERNAME_RE.test(username) ? await getAdminAccount(username) : null;
   // Always hash once, so response time doesn't reveal whether the username exists.
   const passwordOk = await verifyPassword(password, account?.password_hash || DUMMY_HASH);
   const locked = account?.locked_until && Date.parse(account.locked_until) > Date.now();
 
   if (!account || locked || !passwordOk) {
-    if (account && !locked) recordAdminLoginFailure(username, { lockAfter: LOCK_AFTER, lockMs: LOCK_MS });
+    if (account && !locked) await recordAdminLoginFailure(username, { lockAfter: LOCK_AFTER, lockMs: LOCK_MS });
     console.warn(`[admin] failed sign-in for "${username}" from ${req.ip}${locked ? ' (account locked)' : ''}`);
     return fail(LOGIN_FAILED);
   }
 
-  recordAdminLogin(username);
+  await recordAdminLogin(username);
   console.log(`[admin] ${username} signed in from ${req.ip}`);
   startAdminSession(req, account, (err) => {
     if (err) return next(err);
@@ -175,13 +175,13 @@ adminRouter.get('/', (req, res) => res.redirect('/admin/keycloak'));
 
 const APPLIED_NOTE = 'New sign-ins and Keycloak calls use it now. People already signed in keep their session until they sign out.';
 
-adminRouter.get('/keycloak', (req, res) => {
-  const profiles = listProfiles();
+adminRouter.get('/keycloak', async (req, res) => {
+  const [profiles, spKeys] = await Promise.all([listProfiles(), getSpKeysView()]);
   const active = profiles.find((p) => p.active);
   let message = null;
   if ('activated' in req.query && active) message = `"${active.name}" is now the active profile. ${APPLIED_NOTE}`;
   if ('deleted' in req.query) message = 'Profile deleted.';
-  res.render('pages/admin/profiles', { title: 'Keycloak profiles', profiles, message, hasSigningKey: Boolean(getSpKeysView().active) });
+  res.render('pages/admin/profiles', { title: 'Keycloak profiles', profiles, message, hasSigningKey: Boolean(spKeys.active) });
 });
 
 // Form values for a profile page. Secrets are never sent back to the browser, only whether they are set.
@@ -205,24 +205,24 @@ const formValues = (body) => ({
   ...Object.fromEntries(PROFILE_FIELDS.filter((f) => !f.secret).map((f) => [f.key, body[f.key] ?? ''])),
 });
 
-function loadProfile(req, res) {
-  const profile = getProfile(Number(req.params.id));
+async function loadProfile(req, res) {
+  const profile = await getProfile(Number(req.params.id));
   if (!profile) sendError(req, res, 404, 'Keycloak profile not found.');
   return profile;
 }
 
 adminRouter.get('/keycloak/new', (req, res) => renderProfile(res, {}));
 
-adminRouter.post('/keycloak/profiles', (req, res) => {
-  const { errors, id } = createProfile(profileInputFromForm(req.body), req.admin.username);
+adminRouter.post('/keycloak/profiles', async (req, res) => {
+  const { errors, id } = await createProfile(profileInputFromForm(req.body), req.admin.username);
   if (Object.keys(errors).length) {
     return renderProfile(res, { status: 422, values: formValues(req.body), errors, error: 'Fix the highlighted fields. Nothing was saved.' });
   }
   redirect(req, res, `/admin/keycloak/profiles/${id}?created`);
 });
 
-adminRouter.get('/keycloak/profiles/:id', (req, res) => {
-  const profile = loadProfile(req, res);
+adminRouter.get('/keycloak/profiles/:id', async (req, res) => {
+  const profile = await loadProfile(req, res);
   if (!profile) return;
   const message = 'created' in req.query ? 'Profile created. Run the checks, then activate it when you’re ready.'
     : 'duplicated' in req.query ? 'This is a copy, including the client secrets. Rename it and change what differs.'
@@ -230,53 +230,53 @@ adminRouter.get('/keycloak/profiles/:id', (req, res) => {
   renderProfile(res, { profile, message });
 });
 
-adminRouter.post('/keycloak/profiles/:id', (req, res) => {
-  const profile = loadProfile(req, res);
+adminRouter.post('/keycloak/profiles/:id', async (req, res) => {
+  const profile = await loadProfile(req, res);
   if (!profile) return;
-  const { errors } = updateProfile(profile.id, profileInputFromForm(req.body, profile), req.admin.username);
+  const { errors } = await updateProfile(profile.id, profileInputFromForm(req.body, profile), req.admin.username);
   if (Object.keys(errors).length) {
     return renderProfile(res, { status: 422, profile, values: formValues(req.body), errors, error: 'Fix the highlighted fields. Nothing was saved.' });
   }
   renderProfile(res, {
-    profile: getProfile(profile.id),
+    profile: await getProfile(profile.id),
     message: profile.active ? `Saved. This is the active profile: ${APPLIED_NOTE}` : 'Saved.',
   });
 });
 
-adminRouter.post('/keycloak/profiles/:id/activate', (req, res) => {
-  const profile = loadProfile(req, res);
+adminRouter.post('/keycloak/profiles/:id/activate', async (req, res) => {
+  const profile = await loadProfile(req, res);
   if (!profile) return;
-  activateProfile(profile.id, req.admin.username);
+  await activateProfile(profile.id, req.admin.username);
   redirect(req, res, '/admin/keycloak?activated');
 });
 
 adminRouter.post('/keycloak/profiles/:id/test', async (req, res) => {
-  const profile = loadProfile(req, res);
+  const profile = await loadProfile(req, res);
   if (!profile) return;
   res.render('fragments/admin-checks', { checks: await checkKeycloakConnection({ ...profile.settings, ...profile.secrets }) });
 });
 
-adminRouter.post('/keycloak/profiles/:id/duplicate', (req, res) => {
-  const profile = loadProfile(req, res);
+adminRouter.post('/keycloak/profiles/:id/duplicate', async (req, res) => {
+  const profile = await loadProfile(req, res);
   if (!profile) return;
-  const id = duplicateProfile(profile.id, req.admin.username);
+  const id = await duplicateProfile(profile.id, req.admin.username);
   console.log(`[admin] ${req.admin.username} duplicated Keycloak profile "${profile.name}"`);
   redirect(req, res, `/admin/keycloak/profiles/${id}?duplicated`);
 });
 
-adminRouter.post('/keycloak/profiles/:id/delete', (req, res) => {
-  const profile = loadProfile(req, res);
+adminRouter.post('/keycloak/profiles/:id/delete', async (req, res) => {
+  const profile = await loadProfile(req, res);
   if (!profile) return;
-  const { error } = deleteProfile(profile.id, req.admin.username);
+  const { error } = await deleteProfile(profile.id, req.admin.username);
   if (error) return sendError(req, res, 400, error);
   redirect(req, res, '/admin/keycloak?deleted');
 });
 
 // ---------- export / import ----------
 
-function sendExport(req, res, ids, filePart) {
+async function sendExport(req, res, ids, filePart) {
   const includeSecrets = req.body.includeSecrets === 'on';
-  const data = exportProfiles(ids, { includeSecrets });
+  const data = await exportProfiles(ids, { includeSecrets });
   const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');
   const slug = filePart.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'profile';
   console.log(`[admin] ${req.admin.username} exported ${data.profiles.length} Keycloak profile(s)${includeSecrets ? ' WITH client secrets' : ''}`);
@@ -288,10 +288,10 @@ function sendExport(req, res, ids, filePart) {
 // POST, not GET: exports can contain client secrets, so they need the CSRF token.
 adminRouter.post('/keycloak/export', (req, res) => sendExport(req, res, null, 'profiles'));
 
-adminRouter.post('/keycloak/profiles/:id/export', (req, res) => {
-  const profile = loadProfile(req, res);
+adminRouter.post('/keycloak/profiles/:id/export', async (req, res) => {
+  const profile = await loadProfile(req, res);
   if (!profile) return;
-  sendExport(req, res, [profile.id], profile.name);
+  await sendExport(req, res, [profile.id], profile.name);
 });
 
 const CONFLICT_CHOICES = ['rename', 'overwrite', 'skip'];
@@ -303,11 +303,11 @@ const renderImport = (res, { status = 200, ...locals } = {}) =>
 
 adminRouter.get('/keycloak/import', (req, res) => renderImport(res));
 
-adminRouter.post('/keycloak/import', (req, res) => {
+adminRouter.post('/keycloak/import', async (req, res) => {
   const json = String(req.body.json || '').trim();
   const onConflict = CONFLICT_CHOICES.includes(req.body.onConflict) ? req.body.onConflict : 'rename';
   if (!json) return renderImport(res, { status: 422, onConflict, error: 'Choose a file or paste the exported JSON.' });
-  const { error, problems = [], result } = importProfiles(json, { onConflict, by: req.admin.username });
+  const { error, problems = [], result } = await importProfiles(json, { onConflict, by: req.admin.username });
   // Never echo the JSON back: it may contain client secrets.
   if (error) return renderImport(res, { status: 422, onConflict, error, problems });
   renderImport(res, { onConflict, result });
@@ -328,10 +328,10 @@ function keyGenerationLimited(username) {
   return hits.length > 10;
 }
 
-const renderSigning = (res, { status = 200, ...locals } = {}) =>
+const renderSigning = async (res, { status = 200, ...locals } = {}) =>
   res.status(status).render('pages/admin/signing', {
     title: 'SAML signing certificate',
-    ...getSpKeysView(),
+    ...(await getSpKeysView()),
     KEY_SIZES,
     VALIDITY_YEARS,
     values: { commonName: defaultCommonName(), keySize: 2048, years: 5 },
@@ -351,7 +351,7 @@ adminRouter.get('/signing', (req, res) => {
   const message = 'activated' in req.query ? 'The new certificate is active. CloakTail now signs with it.'
     : 'discarded' in req.query ? 'The pending certificate was discarded.'
       : Object.hasOwn(STATUS_MESSAGES, req.query.created ?? '') ? STATUS_MESSAGES[req.query.created] : null;
-  renderSigning(res, { message });
+  return renderSigning(res, { message });
 });
 
 adminRouter.post('/signing/generate', async (req, res) => {
@@ -369,28 +369,28 @@ adminRouter.post('/signing/generate', async (req, res) => {
   redirect(req, res, `/admin/signing?created=${status}`);
 });
 
-adminRouter.post('/signing/import', (req, res) => {
-  const { error, field, status } = importSpKey(String(req.body.certificate || ''), String(req.body.privateKey || ''), req.admin.username);
+adminRouter.post('/signing/import', async (req, res) => {
+  const { error, field, status } = await importSpKey(String(req.body.certificate || ''), String(req.body.privateKey || ''), req.admin.username);
   // Never echo the private key back.
   if (error) return renderSigning(res, { status: 422, importError: error, importField: field });
   redirect(req, res, `/admin/signing?created=${status}`);
 });
 
-adminRouter.post('/signing/activate', (req, res) => {
-  if (!activatePendingSpKey(req.admin.username)) return sendError(req, res, 400, 'There is no pending certificate to activate.');
+adminRouter.post('/signing/activate', async (req, res) => {
+  if (!(await activatePendingSpKey(req.admin.username))) return sendError(req, res, 400, 'There is no pending certificate to activate.');
   redirect(req, res, '/admin/signing?activated');
 });
 
-adminRouter.post('/signing/discard', (req, res) => {
-  discardPendingSpKey(req.admin.username);
+adminRouter.post('/signing/discard', async (req, res) => {
+  await discardPendingSpKey(req.admin.username);
   redirect(req, res, '/admin/signing?discarded');
 });
 
 // ---------- administrators ----------
 
-const renderAccounts = (req, res, { status = 200, ...locals } = {}) =>
+const renderAccounts = async (req, res, { status = 200, ...locals } = {}) =>
   res.status(status).render('pages/admin/accounts', {
-    title: 'Administrators', accounts: listAdminAccounts(), values: {}, error: null, message: null, ...locals,
+    title: 'Administrators', accounts: await listAdminAccounts(), values: {}, error: null, message: null, ...locals,
   });
 
 adminRouter.get('/accounts', (req, res) => renderAccounts(req, res));
@@ -403,29 +403,29 @@ adminRouter.post('/accounts', async (req, res) => {
   if (!ADMIN_USERNAME_RE.test(values.username)) {
     return fail('Username: 3–40 lowercase letters, digits, dots, dashes or underscores, starting with a letter or digit.');
   }
-  if (getAdminAccount(values.username)) return fail(`Administrator "${values.username}" already exists.`);
+  if (await getAdminAccount(values.username)) return fail(`Administrator "${values.username}" already exists.`);
   const problem = passwordProblem(password, values.username);
   if (problem) return fail(`Initial password: ${problem}`);
   if (password !== req.body.confirmPassword) return fail('The passwords don’t match.');
 
-  createAdminAccount({
+  await createAdminAccount({
     username: values.username,
     passwordHash: await hashPassword(password),
     createdBy: req.admin.username,
     mustChangePassword: true,
   });
   console.log(`[admin] ${req.admin.username} created administrator ${values.username}`);
-  renderAccounts(req, res, {
+  await renderAccounts(req, res, {
     message: `Administrator "${values.username}" created. Share the initial password securely; they must change it when they first sign in.`,
   });
 });
 
-adminRouter.post('/accounts/:username/delete', (req, res) => {
-  const account = getAdminAccount(req.params.username);
+adminRouter.post('/accounts/:username/delete', async (req, res) => {
+  const account = await getAdminAccount(req.params.username);
   if (!account) return sendError(req, res, 404, 'Administrator not found.');
   // Never delete yourself, so there is always at least one administrator left.
   if (account.username === req.admin.username) return sendError(req, res, 400, 'You can’t delete your own account.');
-  deleteAdminAccount(account.username);
+  await deleteAdminAccount(account.username);
   console.log(`[admin] ${req.admin.username} deleted administrator ${account.username}`);
   redirect(req, res, '/admin/accounts');
 });
@@ -444,17 +444,17 @@ adminRouter.post('/password', async (req, res, next) => {
   const password = String(req.body.password || '');
   const fail = (error) => renderPassword(req, res, { status: 422, error });
 
-  const account = getAdminAccount(req.admin.username);
+  const account = await getAdminAccount(req.admin.username);
   if (!(await verifyPassword(current, account.password_hash))) return fail('Your current password is incorrect.');
   const problem = passwordProblem(password, account.username);
   if (problem) return fail(problem);
   if (password !== req.body.confirmPassword) return fail('The new passwords don’t match.');
   if (password === current) return fail('Choose a password different from the current one.');
 
-  setAdminPassword(account.username, await hashPassword(password), { mustChangePassword: false });
+  await setAdminPassword(account.username, await hashPassword(password), { mustChangePassword: false });
   console.log(`[admin] ${account.username} changed their password`);
   // Keeps this browser signed in; the account's other sessions end because password_changed_at moved on.
-  startAdminSession(req, getAdminAccount(account.username), (err) => {
+  startAdminSession(req, await getAdminAccount(account.username), (err) => {
     if (err) return next(err);
     res.redirect(303, account.must_change_password ? '/admin/keycloak' : '/admin/password?changed');
   });

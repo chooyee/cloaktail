@@ -26,7 +26,14 @@ export const config = {
     .map((u) => u.trim().toLowerCase())
     .filter(Boolean),
   defaultRole: process.env.DEFAULT_ROLE || 'developer',
-  dbFile: process.env.DB_FILE || 'data/app.db',
+  // PostgreSQL connection. Unset values fall back to the standard PG* variables / pg defaults.
+  db: {
+    host: process.env.dbhost || undefined,
+    port: int('dbport', 5432),
+    database: process.env.database || undefined,
+    user: process.env.dbuser || undefined,
+    password: process.env.dbpassword || undefined,
+  },
 
   registration: {
     enabled: flag('ALLOW_REGISTRATION', true),
