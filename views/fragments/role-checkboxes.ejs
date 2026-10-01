@@ -1,0 +1,13 @@
+<%# Expects `roles` and `selectedIds` (array of role ids). %>
+<div class="grid gap-3 sm:grid-cols-2">
+  <% for (const role of roles) { %>
+    <div class="field" data-orientation="horizontal">
+      <input type="checkbox" id="role-<%= role.id %>" name="roleIds" value="<%= role.id %>"
+             <%= selectedIds.includes(role.id) ? 'checked' : '' %>>
+      <section>
+        <label for="role-<%= role.id %>"><%= role.name %></label>
+        <% if (role.description) { %><p><%= role.description %></p><% } %>
+      </section>
+    </div>
+  <% } %>
+</div>

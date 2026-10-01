@@ -1,0 +1,40 @@
+<% const editable = can('users.edit'); %>
+<form id="user-profile" class="card" hx-post="/users/<%= kcUser.id %>/profile" hx-swap="outerHTML">
+  <header>
+    <h2>Profile</h2>
+    <p>Stored in Keycloak.</p>
+  </header>
+  <section class="grid gap-4">
+    <%- include('form-status') %>
+    <div class="field">
+      <label for="username">Username</label>
+      <input id="username" type="text" value="<%= kcUser.username %>" disabled>
+    </div>
+    <div class="grid gap-4 sm:grid-cols-2">
+      <div class="field">
+        <label for="firstName">First name</label>
+        <input id="firstName" name="firstName" type="text" value="<%= kcUser.firstName || '' %>" <%= editable ? '' : 'disabled' %>>
+      </div>
+      <div class="field">
+        <label for="lastName">Last name</label>
+        <input id="lastName" name="lastName" type="text" value="<%= kcUser.lastName || '' %>" <%= editable ? '' : 'disabled' %>>
+      </div>
+    </div>
+    <div class="field">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" value="<%= kcUser.email || '' %>" <%= editable ? '' : 'disabled' %>>
+    </div>
+    <div class="field" data-orientation="horizontal">
+      <input type="checkbox" role="switch" id="enabled" name="enabled" <%= kcUser.enabled ? 'checked' : '' %> <%= editable ? '' : 'disabled' %>>
+      <section>
+        <label for="enabled">Enabled</label>
+        <p>Disabling signs the user out of Keycloak and this app.</p>
+      </section>
+    </div>
+  </section>
+  <% if (editable) { %>
+    <footer class="flex justify-end">
+      <button type="submit" class="btn">Save profile</button>
+    </footer>
+  <% } %>
+</form>

@@ -1,0 +1,34 @@
+<% const locked = role.name === 'admin' || !can('roles.manage'); %>
+<form id="role-form" class="card" hx-post="/roles/<%= role.id %>" hx-swap="outerHTML">
+  <header>
+    <h2>Permissions</h2>
+    <p><%= role.name === 'admin' ? 'The admin role always has every permission.' : 'What users with this role can do.' %></p>
+  </header>
+  <section class="grid gap-6">
+    <%- include('form-status') %>
+    <div class="field">
+      <label for="description">Description</label>
+      <input id="description" name="description" type="text" value="<%= role.description %>" <%= locked ? 'disabled' : '' %>>
+    </div>
+    <fieldset class="fieldset">
+      <legend class="mb-3 text-sm font-medium">Permissions</legend>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <% for (const p of permissions) { %>
+          <div class="field" data-orientation="horizontal">
+            <input type="checkbox" id="perm-<%= p.key %>" name="permissions" value="<%= p.key %>"
+                   <%= role.permissions.has(p.key) ? 'checked' : '' %> <%= locked ? 'disabled' : '' %>>
+            <section>
+              <label for="perm-<%= p.key %>"><%= p.description %></label>
+              <p><code><%= p.key %></code></p>
+            </section>
+          </div>
+        <% } %>
+      </div>
+    </fieldset>
+  </section>
+  <% if (!locked) { %>
+    <footer class="flex justify-end">
+      <button type="submit" class="btn">Save role</button>
+    </footer>
+  <% } %>
+</form>

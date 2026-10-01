@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><%= title %> · CloakTail</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%2318181b'/%3E%3Cg fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M16.5 7.2a6.2 6.2 0 1 0 0 9.6'/%3E%3Cpath d='M16.5 16.8c1.6 1.3 3.2 1.6 4.8 1'/%3E%3C/g%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/css/app.css?v=<%= cssVersion %>">
+  <%# Swap 4xx/5xx responses too: the server retargets them to #flash. %>
+  <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}]}'>
+  <script src="/static/vendor/htmx.min.js" defer></script>
+  <script src="/static/vendor/basecoat.min.js" defer></script>
+  <script>
+    // Buttons with data-copy="text" copy it to the clipboard.
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-copy]');
+      if (!btn) return;
+      navigator.clipboard.writeText(btn.dataset.copy).then(() => {
+        const label = btn.textContent;
+        btn.textContent = 'Copied';
+        setTimeout(() => { btn.textContent = label; }, 1200);
+      });
+    });
+    // Buttons with data-download="file.pem" data-source="#textarea" save that text as a file.
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-download]');
+      if (!btn) return;
+      const text = document.querySelector(btn.dataset.source)?.value || '';
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(new Blob([text], { type: 'application/x-pem-file' }));
+      link.download = btn.dataset.download;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    });
+  </script>
+</head>
+<body class="min-h-screen bg-background text-foreground" hx-headers='{"X-CSRF-Token": "<%= csrfToken %>"}'>
+  <header class="sticky top-0 z-10 border-b bg-background/90 backdrop-blur">
+    <div class="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4">
+<% const adminArea = typeof admin !== 'undefined' && admin && currentPath.startsWith('/admin'); %>
+      <a href="<%= adminArea ? '/admin' : '/' %>" class="flex shrink-0 items-center gap-2 font-semibold">
+        <%- include('logo') %>
+        <span class="<%= user || adminArea ? 'hidden sm:inline' : '' %>">CloakTail</span>
+      </a>
+<% if (adminArea) { %>
+      <span class="badge shrink-0" data-variant="secondary">Admin</span>
+      <nav class="-mx-1 flex min-w-0 items-center gap-1 overflow-x-auto px-1 text-sm" aria-label="Admin">
+        <% const adminLinks = admin.mustChangePassword
+             ? [{ href: '/admin/password', label: 'Change password' }]
+             : [
+                 { href: '/admin/keycloak', label: 'Keycloak profiles' },
+                 { href: '/admin/signing', label: 'Signing certificate' },
+                 { href: '/admin/accounts', label: 'Administrators' },
+                 { href: '/admin/password', label: 'Change password' },
+               ]; %>
+        <% for (const link of adminLinks) { const active = currentPath.startsWith(link.href); %>
+          <a href="<%= link.href %>" class="btn shrink-0" data-variant="<%= active ? 'secondary' : 'ghost' %>" data-size="sm"
+             <%- active ? 'aria-current="page"' : '' %>><%= link.label %></a>
+        <% } %>
+      </nav>
+      <div class="ml-auto flex shrink-0 items-center gap-3 text-sm">
+        <span class="hidden text-muted-foreground lg:inline"><%= admin.username %></span>
+        <form method="post" action="/admin/logout">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <button type="submit" class="btn" data-variant="outline" data-size="sm">Sign out</button>
+        </form>
+      </div>
+<% } else if (user) { %>
+      <nav class="-mx-1 flex min-w-0 items-center gap-1 overflow-x-auto px-1 text-sm" aria-label="Main">
+        <% const links = [
+             { href: '/', label: 'Dashboard', perms: ['dashboard.view'] },
+             { href: '/apps', label: 'Applications', perms: ['apps.own', 'apps.view_all'] },
+             { href: '/test-users', label: 'Test users', perms: ['apps.own'] },
+             { href: '/tools/certificate', label: 'Certificates', perms: ['apps.own'] },
+             { href: '/users', label: 'Users', perms: ['users.view'] },
+             { href: '/roles', label: 'Roles', perms: ['roles.view'] },
+             { href: '/guide', label: 'Guide', perms: [] },
+           ].filter((l) => !l.perms.length || l.perms.some(can)); %>
+        <% for (const link of links) {
+             const active = link.href === '/' ? currentPath === '/' : currentPath.startsWith(link.href); %>
+          <a href="<%= link.href %>" class="btn shrink-0" data-variant="<%= active ? 'secondary' : 'ghost' %>" data-size="sm"
+             <%- active ? 'aria-current="page"' : '' %>><%= link.label %></a>
+        <% } %>
+      </nav>
+      <div class="ml-auto flex shrink-0 items-center gap-3 text-sm">
+        <span class="hidden text-muted-foreground lg:inline">
+          <%= [user.firstName, user.lastName].filter(Boolean).join(' ') || user.username %>
+        </span>
+        <form method="post" action="/logout">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <button type="submit" class="btn" data-variant="outline" data-size="sm">Sign out</button>
+        </form>
+      </div>
+<% } else { %>
+      <nav class="hidden items-center gap-1 text-sm md:flex" aria-label="Main">
+        <a href="/#quickstart" class="btn" data-variant="ghost" data-size="sm">Quickstart</a>
+        <a href="/#features" class="btn" data-variant="ghost" data-size="sm">Features</a>
+        <a href="/#test-login" class="btn" data-variant="ghost" data-size="sm">How testing works</a>
+        <a href="/#troubleshooting" class="btn" data-variant="ghost" data-size="sm">Troubleshooting</a>
+      </nav>
+      <div class="ml-auto flex items-center gap-2">
+        <%# Don't offer a link to the page you're already on. %>
+        <% if (currentPath !== '/login') { %><a href="/login" class="btn" data-variant="ghost" data-size="sm">Sign in</a><% } %>
+        <% if (registrationEnabled && currentPath !== '/register') { %><a href="/register" class="btn" data-size="sm">Get started</a><% } %>
+      </div>
+<% } %>
+    </div>
+  </header>
+<% const bleed = typeof fullBleed !== 'undefined' && fullBleed; %>
+  <main class="<%= bleed ? '' : 'mx-auto max-w-6xl px-4 py-8' %>">
+    <div id="flash" aria-live="polite" class="<%= bleed ? 'mx-auto max-w-6xl px-4' : '' %>"></div>

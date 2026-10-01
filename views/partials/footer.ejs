@@ -1,0 +1,58 @@
+  </main>
+<% const full = typeof fullFooter !== 'undefined' && fullFooter; %>
+  <footer class="border-t <%= full ? '' : 'mt-16' %>">
+    <div class="mx-auto max-w-6xl px-4 <%= full ? 'py-12' : 'py-8' %>">
+      <% if (full) { %>
+        <div class="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
+          <div>
+            <a href="/" class="flex items-center gap-2 font-semibold">
+              <%- include('logo') %>
+              CloakTail
+            </a>
+            <p class="mt-3 max-w-xs text-sm text-muted-foreground">The self-service developer portal for Keycloak SAML: clients, test users and verified test logins in an isolated sandbox.</p>
+          </div>
+          <nav aria-label="Portal">
+            <h2 class="text-sm font-semibold">Portal</h2>
+            <ul class="mt-3 grid gap-2 text-sm text-muted-foreground">
+              <li><a href="/apps" class="hover:text-foreground">Applications</a></li>
+              <li><a href="/test-users" class="hover:text-foreground">Test users</a></li>
+              <li><a href="/tools/certificate" class="hover:text-foreground">Certificate generator</a></li>
+              <li><a href="<%= user ? '/' : '/login' %>" class="hover:text-foreground"><%= user ? 'Dashboard' : 'Sign in' %></a></li>
+            </ul>
+          </nav>
+          <nav aria-label="Resources">
+            <h2 class="text-sm font-semibold">Resources</h2>
+            <ul class="mt-3 grid gap-2 text-sm text-muted-foreground">
+              <li><a href="/#quickstart" class="hover:text-foreground">Quickstart</a></li>
+              <li><a href="/#test-login" class="hover:text-foreground">How testing works</a></li>
+              <li><a href="/#troubleshooting" class="hover:text-foreground">Troubleshooting</a></li>
+              <li><a href="<%= sandbox.descriptorUrl %>" class="hover:text-foreground">Sandbox IdP metadata</a></li>
+            </ul>
+          </nav>
+          <nav aria-label="External">
+            <h2 class="text-sm font-semibold">Learn more</h2>
+            <ul class="mt-3 grid gap-2 text-sm text-muted-foreground">
+              <li><a href="https://www.keycloak.org/documentation" class="hover:text-foreground" rel="noopener" target="_blank">Keycloak documentation ↗</a></li>
+              <li><a href="https://docs.oasis-open.org/security/saml/v2.0/" class="hover:text-foreground" rel="noopener" target="_blank">SAML 2.0 specification ↗</a></li>
+              <li><a href="/disclaimer" class="hover:text-foreground">Disclaimer</a></li>
+            </ul>
+          </nav>
+        </div>
+      <% } %>
+      <div class="<%= full ? 'mt-10 border-t pt-6' : '' %> grid gap-3 text-xs text-muted-foreground sm:grid-cols-[1fr_auto] sm:items-start">
+        <p class="max-w-3xl">
+          <strong class="text-foreground">Disclaimer:</strong>
+          CloakTail and its <code><%= sandboxRealm %></code> sandbox realm are for development and testing only.
+          Do not use real personal data or production credentials. Sandbox data may be reset at any time, without notice or warranty.
+        </p>
+        <% if (!full) { %>
+          <nav class="flex gap-4 sm:justify-end" aria-label="Footer">
+            <a href="/guide" class="hover:text-foreground hover:underline">Guide</a>
+            <a href="/disclaimer" class="hover:text-foreground hover:underline">Full disclaimer</a>
+          </nav>
+        <% } %>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,67 @@
+<%- include('../partials/header') %>
+<h1 class="text-2xl font-semibold">Welcome, <%= user.firstName || user.username %></h1>
+<p class="mt-1 text-muted-foreground">Connect your application to Keycloak with SAML and test it in the <code><%= sandboxRealm %></code> sandbox realm.</p>
+
+<% if (can('apps.own')) { %>
+  <% const steps = [
+       { done: testUserCount > 0, title: 'Create a test user', text: 'A sandbox account to sign in with while testing.', href: '/test-users', action: 'Test users' },
+       { done: appCount > 0, title: 'Register your application', text: 'Enter your SP entity ID and ACS URL, or import your SP metadata.', href: appCount ? '/apps' : '/apps/new', action: appCount ? 'Applications' : 'Register application' },
+       { done: false, title: 'Test the connection', text: 'Sign in as a test user and inspect the SAML response Keycloak sends.', href: '/apps', action: 'Open an application' },
+       { done: false, title: 'Configure your app', text: 'Copy the IdP metadata URL and certificate from the application page into your SAML library.', href: '/apps', action: null },
+     ]; %>
+  <div class="card mt-8">
+    <header>
+      <h2>Getting started</h2>
+      <p><%= appCount %> of <%= maxApps %> applications · <%= testUserCount %> of <%= maxTestUsers %> test users</p>
+    </header>
+    <section>
+      <ol class="grid gap-4">
+        <% steps.forEach((step, i) => { %>
+          <li class="flex items-start gap-4">
+            <span class="flex size-7 shrink-0 items-center justify-center rounded-full border text-sm font-medium
+                         <%= step.done ? 'bg-primary text-primary-foreground border-primary' : '' %>"><%= step.done ? '✓' : i + 1 %></span>
+            <div class="flex-1">
+              <p class="font-medium"><%= step.title %></p>
+              <p class="text-sm text-muted-foreground"><%= step.text %></p>
+            </div>
+            <% if (step.action) { %>
+              <a href="<%= step.href %>" class="btn" data-variant="<%= step.done ? 'ghost' : 'outline' %>" data-size="sm"><%= step.action %></a>
+            <% } %>
+          </li>
+        <% }) %>
+      </ol>
+    </section>
+  </div>
+<% } %>
+
+<div class="mt-6 grid gap-6 md:grid-cols-2">
+  <div class="card">
+    <header>
+      <h2>Your account</h2>
+      <p>From the Keycloak sign-in.</p>
+    </header>
+    <section>
+      <dl class="grid grid-cols-[8rem_1fr] gap-y-2 text-sm">
+        <dt class="text-muted-foreground">Username</dt><dd><%= user.username %></dd>
+        <dt class="text-muted-foreground">Email</dt><dd><%= user.email || '—' %></dd>
+        <dt class="text-muted-foreground">Name</dt><dd><%= [user.firstName, user.lastName].filter(Boolean).join(' ') || '—' %></dd>
+      </dl>
+    </section>
+  </div>
+
+  <div class="card">
+    <header>
+      <h2>Your portal roles</h2>
+      <p>Managed in this portal, not in Keycloak.</p>
+    </header>
+    <section class="flex flex-wrap gap-2">
+      <% if (userRoles.length === 0) { %>
+        <span class="text-sm text-muted-foreground">No roles assigned.</span>
+      <% } %>
+      <% for (const role of userRoles) { %>
+        <span class="badge" data-variant="secondary"><%= role.name %></span>
+      <% } %>
+    </section>
+  </div>
+</div>
+<%- include('../partials/footer') %>

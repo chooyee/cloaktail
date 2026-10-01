@@ -1,0 +1,153 @@
+<%- include('../../partials/header') %>
+<%
+  const isNew = !profile;
+  const action = isNew ? '/admin/keycloak/profiles' : `/admin/keycloak/profiles/${profile.id}`;
+  const fieldError = (key) => errors[key];
+%>
+<a href="/admin/keycloak" class="text-sm text-muted-foreground hover:underline">← Keycloak profiles</a>
+<div class="mt-2 flex flex-wrap items-center gap-3">
+  <h1 class="text-2xl font-semibold"><%= isNew ? 'New Keycloak profile' : profile.name %></h1>
+  <% if (!isNew && profile.active) { %><span class="badge">Active</span><% } %>
+</div>
+
+<div class="mt-6 grid gap-6 lg:grid-cols-[1fr_22rem]">
+  <form id="profile-form" class="card" method="post" action="<%= action %>"
+        hx-post="<%= action %>" hx-target="#profile-form" hx-select="#profile-form" hx-swap="outerHTML">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <section class="grid gap-8">
+      <%- include('../../fragments/form-status', { error, message }) %>
+      <% if (!isNew && profile.secretsUnreadable) { %>
+        <div class="alert" data-variant="destructive" role="alert">
+          <h2>Client secrets can’t be read</h2>
+          <section>They were encrypted with a different <code>SETTINGS_KEY</code> or <code>SESSION_SECRET</code>. Enter both secrets again.</section>
+        </div>
+      <% } %>
+
+      <div class="grid gap-4">
+        <%- include('../../fragments/text-field', { name: 'name', label: 'Profile name', value: values.name, autocomplete: 'off',
+              attrs: 'required maxlength="60"', hint: 'For example Production, Staging or Local.', invalid: fieldError('name') }) %>
+        <%- include('../../fragments/text-field', { name: 'description', label: 'Description', value: values.description, autocomplete: 'off',
+              attrs: 'maxlength="300"', hint: 'Optional.', invalid: fieldError('description') }) %>
+      </div>
+
+      <% for (const section of sections) { %>
+        <div class="grid gap-4">
+          <div>
+            <h2 class="font-semibold"><%= section.title %></h2>
+            <p class="text-sm text-muted-foreground"><%= section.text %></p>
+          </div>
+
+          <% for (const f of fields.filter((x) => x.section === section.id)) {
+               const err = fieldError(f.key);
+               const describedBy = [f.hint && `${f.key}-hint`, err && `${f.key}-error`].filter(Boolean).join(' ');
+               const isSet = Boolean(secretsSet[f.key]); %>
+            <div class="field gap-1.5" <%- err ? 'data-invalid="true"' : '' %>>
+              <label for="<%= f.key %>"><%= f.label %></label>
+              <% if (f.multiline) { %>
+                <textarea id="<%= f.key %>" name="<%= f.key %>" rows="4" class="font-mono text-xs" spellcheck="false"
+                          <%- describedBy ? `aria-describedby="${describedBy}"` : '' %> <%- err ? 'aria-invalid="true"' : '' %>><%= values[f.key] || '' %></textarea>
+              <% } else if (f.secret) { %>
+                <input id="<%= f.key %>" name="<%= f.key %>" type="password" class="h-9 py-0" autocomplete="new-password"
+                       placeholder="<%= isSet ? '•••••••• set. Leave empty to keep it.' : 'Not set' %>"
+                       <%- err ? 'aria-invalid="true"' : '' %>>
+              <% } else { %>
+                <input id="<%= f.key %>" name="<%= f.key %>" type="text" class="h-9 py-0 font-mono text-sm" value="<%= values[f.key] || '' %>"
+                       spellcheck="false" autocomplete="off" placeholder="<%= f.placeholder || '' %>" <%= f.required ? 'required' : '' %>
+                       <%- describedBy ? `aria-describedby="${describedBy}"` : '' %> <%- err ? 'aria-invalid="true"' : '' %>>
+              <% } %>
+              <% if (err) { %><p id="<%= f.key %>-error" class="text-xs text-destructive"><%= err %></p><% } %>
+              <% if (f.hint) { %><p id="<%= f.key %>-hint" class="text-xs"><%= f.hint %></p><% } %>
+              <% if (f.secret && isSet) { %>
+                <div class="field mt-1" data-orientation="horizontal">
+                  <input type="checkbox" id="<%= f.key %>_clear" name="<%= f.key %>_clear">
+                  <label for="<%= f.key %>_clear" class="text-sm font-normal">Remove the stored secret</label>
+                </div>
+              <% } %>
+            </div>
+          <% } %>
+        </div>
+      <% } %>
+    </section>
+    <footer class="flex justify-end gap-2">
+      <a href="<%= isNew ? '/admin/keycloak' : action %>" class="btn" data-variant="outline"><%= isNew ? 'Cancel' : 'Discard changes' %></a>
+      <button type="submit" class="btn"><%= isNew ? 'Create profile' : 'Save profile' %></button>
+    </footer>
+  </form>
+
+  <div class="grid gap-6 self-start">
+    <% if (isNew) { %>
+      <div class="card">
+        <header><h2>After you create it</h2></header>
+        <section class="grid gap-2 text-sm text-muted-foreground">
+          <p>Run the connection checks, then activate the profile. Creating a profile doesn’t change what CloakTail uses.</p>
+          <p>Client secrets are stored encrypted and are never shown again.</p>
+        </section>
+      </div>
+    <% } else { %>
+      <div class="card">
+        <header>
+          <h2><%= profile.active ? 'Active profile' : 'Not active' %></h2>
+          <p><%= profile.active ? 'CloakTail runs on this profile. Saving changes applies them at once.' : 'Saving changes doesn’t affect CloakTail until you activate it.' %></p>
+        </header>
+        <% if (!profile.active) { %>
+          <footer class="flex justify-end">
+            <button class="btn" hx-post="/admin/keycloak/profiles/<%= profile.id %>/activate"
+                    hx-confirm="Switch CloakTail to profile <%= profile.name %>? New sign-ins and Keycloak calls use it at once. Applications and test users registered in another sandbox realm won't be found.">Activate</button>
+          </footer>
+        <% } %>
+      </div>
+
+      <div class="card">
+        <header>
+          <h2>Test connection</h2>
+          <p>Checks the saved profile: both realms, the signing certificate and both service accounts. Safe to run before activating.</p>
+        </header>
+        <section>
+          <div id="test-result" aria-live="polite"><p class="text-sm text-muted-foreground">Save your changes first.</p></div>
+        </section>
+        <footer class="flex justify-end">
+          <button class="btn" data-variant="outline" hx-post="/admin/keycloak/profiles/<%= profile.id %>/test"
+                  hx-target="#test-result" hx-disabled-elt="this">Run checks</button>
+        </footer>
+      </div>
+
+      <form class="card" method="post" action="/admin/keycloak/profiles/<%= profile.id %>/export">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <header>
+          <h2>Export</h2>
+          <p>Downloads this profile as JSON, to import into another CloakTail.</p>
+        </header>
+        <section>
+          <div class="field" data-orientation="horizontal">
+            <input type="checkbox" id="includeSecrets" name="includeSecrets">
+            <label for="includeSecrets" class="text-sm font-normal">Include client secrets (in plain text)</label>
+          </div>
+        </section>
+        <footer class="flex justify-end">
+          <button type="submit" class="btn" data-variant="outline">Export JSON</button>
+        </footer>
+      </form>
+
+      <div class="card">
+        <header>
+          <h2>More</h2>
+        </header>
+        <footer class="flex flex-wrap justify-end gap-2">
+          <button class="btn" data-variant="outline" hx-post="/admin/keycloak/profiles/<%= profile.id %>/duplicate">Duplicate</button>
+          <% if (profile.active) { %>
+            <button class="btn" data-variant="destructive" disabled title="Activate another profile first">Delete</button>
+          <% } else { %>
+            <button class="btn" data-variant="destructive" hx-post="/admin/keycloak/profiles/<%= profile.id %>/delete"
+                    hx-confirm="Delete profile <%= profile.name %>? This can't be undone; export it first if you may need it.">Delete</button>
+          <% } %>
+        </footer>
+      </div>
+
+      <p class="text-xs text-muted-foreground">
+        Created <%= profile.createdAt %> UTC<%= profile.createdBy ? ` by ${profile.createdBy}` : '' %>.
+        Updated <%= profile.updatedAt %> UTC<%= profile.updatedBy ? ` by ${profile.updatedBy}` : '' %>.
+      </p>
+    <% } %>
+  </div>
+</div>
+<%- include('../../partials/footer') %>

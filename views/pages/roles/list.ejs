@@ -1,0 +1,52 @@
+<%- include('../../partials/header') %>
+<h1 class="text-2xl font-semibold">Roles</h1>
+<p class="mt-1 text-muted-foreground">App roles group permissions. They are stored in this app, independent of Keycloak.</p>
+
+<div class="mt-6 grid gap-6 lg:grid-cols-[1fr_20rem]">
+  <div class="table-container rounded-lg border self-start">
+    <table class="table">
+      <thead>
+        <tr><th>Role</th><th>Description</th><th class="text-right">Permissions</th><th class="text-right">Users</th></tr>
+      </thead>
+      <tbody>
+        <% for (const role of roles) { %>
+          <tr>
+            <td>
+              <a class="font-medium underline-offset-4 hover:underline" href="/roles/<%= role.id %>"><%= role.name %></a>
+              <% if (role.is_system) { %><span class="badge ml-1" data-variant="outline">system</span><% } %>
+            </td>
+            <td class="text-muted-foreground"><%= role.description || '—' %></td>
+            <td class="text-right"><%= role.permission_count %></td>
+            <td class="text-right"><%= role.user_count %></td>
+          </tr>
+        <% } %>
+      </tbody>
+    </table>
+  </div>
+
+  <% if (can('roles.manage')) { %>
+    <form id="role-create" class="card self-start" method="post" action="/roles"
+          hx-post="/roles" hx-target="#role-create" hx-select="#role-create" hx-swap="outerHTML">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <header>
+        <h2>New role</h2>
+        <p>Pick permissions on the next page.</p>
+      </header>
+      <section class="grid gap-4">
+        <%- include('../../fragments/form-status', { error }) %>
+        <div class="field">
+          <label for="name">Name</label>
+          <input id="name" name="name" type="text" required placeholder="e.g. auditor" value="<%= values.name || '' %>">
+        </div>
+        <div class="field">
+          <label for="description">Description</label>
+          <input id="description" name="description" type="text" value="<%= values.description || '' %>">
+        </div>
+      </section>
+      <footer class="flex justify-end">
+        <button type="submit" class="btn">Create role</button>
+      </footer>
+    </form>
+  <% } %>
+</div>
+<%- include('../../partials/footer') %>

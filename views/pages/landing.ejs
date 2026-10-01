@@ -1,0 +1,313 @@
+<%- include('../partials/header') %>
+<%
+  const primary = user ? { href: '/apps/new', label: 'Create a SAML client' }
+                       : registrationEnabled ? { href: '/register', label: 'Create developer account' }
+                       : { href: '/login', label: 'Sign in' };
+  const quickstart = [
+    { title: 'Create your account', time: '1 min', text: 'Register as a developer, then sign in with Keycloak.', href: user ? null : '/register', link: 'Sign up' },
+    { title: 'Add a test user', time: '1 min', text: `A made-up identity in the ${sandboxRealm} sandbox to sign in with.`, href: '/test-users', link: 'Test users' },
+    { title: 'Register your SAML client', time: '2 min', text: 'Enter your entity ID and ACS URL, or import your SP metadata.', href: '/apps/new', link: 'New application' },
+    { title: 'Test end to end', time: '1 min', text: 'Run a test login and inspect every check, attribute and signature.', href: '/apps', link: 'Applications' },
+  ];
+  const journeys = [
+    { tag: 'Integrate', title: 'I’m connecting a new app', text: 'Register a SAML client, copy the IdP metadata into your library, and verify the login.', href: '#quickstart', cta: 'Follow the quickstart' },
+    { tag: 'Debug', title: 'I’m debugging a SAML response', text: 'Run a test login to see the status, audience, signatures, attributes and raw XML Keycloak sends.', href: '#test-login', cta: 'See how testing works' },
+    { tag: 'Tool', title: 'I need a certificate', text: 'Generate a key pair and self-signed PEM certificate for signed requests or encrypted assertions.', href: user ? '/tools/certificate' : '/register', cta: 'Open the generator' },
+  ];
+  const features = [
+    { tag: 'Self-service', title: 'SAML clients on demand', text: 'Create, edit and delete your own Keycloak SAML clients. Name ID format, attributes, signing and encryption are all set from a form.' },
+    { tag: 'Import', title: 'SP metadata import', text: 'Paste or upload your app’s metadata XML. Keycloak converts it and the portal pre-fills the form for you to review.' },
+    { tag: 'Sandbox', title: 'Isolated realm', text: `Everything lives in ${sandboxRealm}, away from production identities. Break things freely: nothing reaches real users.` },
+    { tag: 'Test', title: 'Test login with evidence', text: 'Pass/fail checks, the Name ID, session index, attributes and the raw response, with the last 10 runs kept per app.' },
+    { tag: 'Identities', title: 'Test users', text: 'Create sandbox users with the profile your app expects, and see exactly which attributes it will receive.' },
+    { tag: 'Reference', title: 'Copy-ready configuration', text: 'Metadata URL, entity ID, SSO and SLO endpoints, the signing certificate and a sample config, one click each.' },
+  ];
+  const problems = [
+    { q: '“Invalid requester” on the Keycloak page', a: 'The client requires signed requests, or the entity ID your app sends doesn’t match the one you registered. The portal can’t sign for your app, so test signed requests from your app with the certificate you uploaded.' },
+    { q: '“Invalid redirect uri”', a: 'Your app sent an Assertion Consumer Service URL that isn’t registered. Correct the ACS URL in the application settings, including the scheme, host, port and path.' },
+    { q: 'Audience check failed', a: 'Your app validates against a different entity ID. It must match the application’s entity ID exactly, character for character.' },
+    { q: 'Signature check failed in my app', a: 'Your app has the wrong IdP certificate. Configure it from the IdP metadata URL so it always uses the realm’s current signing key.' },
+    { q: 'Expected attributes are missing', a: 'The test user’s profile is incomplete, or the attribute isn’t selected in the application settings. Fill in the user’s email and name, then test again.' },
+  ];
+  const check = '<svg class="size-4 shrink-0 text-emerald-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M16.7 5.3a1 1 0 0 1 0 1.4l-8 8a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.4L8 12.6l7.3-7.3a1 1 0 0 1 1.4 0Z" clip-rule="evenodd"/></svg>';
+  const arrow = '<svg class="size-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M3 10a.75.75 0 0 1 .75-.75h10.6l-3.9-3.7a.75.75 0 1 1 1.04-1.08l5.25 5a.75.75 0 0 1 0 1.08l-5.25 5a.75.75 0 1 1-1.04-1.08l3.9-3.72H3.75A.75.75 0 0 1 3 10Z" clip-rule="evenodd"/></svg>';
+  const chevron = '<svg class="size-4 text-muted-foreground" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.2 7.2a.75.75 0 0 1 1.06 0L10 10.94l3.74-3.74a.75.75 0 1 1 1.06 1.06l-4.27 4.27a.75.75 0 0 1-1.06 0L5.2 8.26a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd"/></svg>';
+%>
+
+<%# ================= Hero ================= %>
+<section class="border-b bg-[radial-gradient(ellipse_at_top,var(--color-muted),transparent_60%)]">
+  <div class="mx-auto grid max-w-6xl items-center gap-12 px-4 py-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:py-24">
+    <div class="min-w-0">
+      <p class="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
+        <span class="size-1.5 rounded-full bg-emerald-500" aria-hidden="true"></span>
+        <span class="font-semibold text-foreground">CloakTail</span>
+        <span class="text-border" aria-hidden="true">|</span>
+        Sandbox realm <code class="text-foreground"><%= sandboxRealm %></code> is live
+      </p>
+      <h1 class="mt-6 text-[2.5rem] leading-[1.1] font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl">SAML SSO, tested before you ship.</h1>
+      <p class="mt-5 max-w-xl text-lg leading-relaxed text-muted-foreground text-pretty">
+        CloakTail is the self-service developer portal for Keycloak. Register a SAML client in a sandbox realm, sign in as a test user, and inspect every assertion, before your app goes near production.
+      </p>
+      <div class="mt-8 flex flex-wrap gap-3">
+        <a href="<%= primary.href %>" class="btn" data-size="lg"><%= primary.label %></a>
+        <a href="#quickstart" class="btn" data-variant="outline" data-size="lg">Read the quickstart</a>
+      </div>
+      <p class="mt-6 text-sm text-muted-foreground">About 5 minutes from sign-up to your first verified login.</p>
+    </div>
+
+    <%# Product preview: what a test login shows. Tabs work without JS (first panel visible). %>
+    <div class="min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-2xl shadow-zinc-950/20" data-tabs>
+      <div class="flex items-center gap-2 border-b border-zinc-800 px-4 py-3">
+        <span class="size-2.5 rounded-full bg-zinc-700" aria-hidden="true"></span>
+        <span class="size-2.5 rounded-full bg-zinc-700" aria-hidden="true"></span>
+        <span class="size-2.5 rounded-full bg-zinc-700" aria-hidden="true"></span>
+        <span class="ml-2 truncate text-xs text-zinc-400">CloakTail · Test result · Acme Billing</span>
+        <span class="ml-auto rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-400">Passed</span>
+      </div>
+      <div role="tablist" aria-label="Test result preview" class="flex gap-1 overflow-x-auto border-b border-zinc-800 px-2 text-xs">
+        <% ['Checks', 'Attributes', 'Raw XML', 'IdP metadata'].forEach((t, i) => { %>
+          <button type="button" role="tab" id="tab-<%= i %>" aria-controls="panel-<%= i %>" aria-selected="<%= i === 0 %>" tabindex="<%= i === 0 ? 0 : -1 %>"
+                  class="shrink-0 border-b-2 border-transparent px-3 py-2.5 text-zinc-400 hover:text-zinc-100 aria-selected:border-emerald-400 aria-selected:text-zinc-100"><%= t %></button>
+        <% }) %>
+      </div>
+      <div class="h-72 overflow-auto p-5 font-mono text-[13px] leading-6">
+        <div role="tabpanel" id="panel-0" aria-labelledby="tab-0">
+          <ul class="grid gap-1.5">
+            <% for (const [label, value] of [
+                 ['Status', 'Success'],
+                 ['Issuer', sandbox.realmUrl],
+                 ['Audience', 'https://billing.acme.dev/saml'],
+                 ['Response signature', 'valid · RSA-SHA256'],
+                 ['Assertion signature', 'valid · RSA-SHA256'],
+                 ['Conditions', 'within validity window'],
+                 ['Attributes', 'email, firstName, lastName'],
+               ]) { %>
+              <li class="flex min-w-0 items-start gap-3"><%- check %><span class="shrink-0 text-zinc-400"><%= label %></span><span class="ml-auto min-w-0 truncate text-right text-zinc-100"><%= value %></span></li>
+            <% } %>
+          </ul>
+          <p class="mt-4 text-zinc-500">NameID tess@example.com · SessionIndex 3f9c…a21</p>
+        </div>
+        <div role="tabpanel" id="panel-1" aria-labelledby="tab-1" hidden>
+          <table class="w-full">
+            <thead class="text-left text-zinc-500"><tr><th class="pb-2 font-normal">Name</th><th class="pb-2 font-normal">Value</th></tr></thead>
+            <tbody>
+              <tr><td class="text-sky-300">email</td><td>tess@example.com</td></tr>
+              <tr><td class="text-sky-300">firstName</td><td>Tess</td></tr>
+              <tr><td class="text-sky-300">lastName</td><td>Tester</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div role="tabpanel" id="panel-2" aria-labelledby="tab-2" hidden>
+<pre class="whitespace-pre text-zinc-300"><span class="text-sky-300">&lt;saml:Assertion</span> <span class="text-amber-200">ID</span>=<span class="text-emerald-300">"ID_7c1e…"</span><span class="text-sky-300">&gt;</span>
+  <span class="text-sky-300">&lt;saml:Issuer&gt;</span><%= sandbox.realmUrl %><span class="text-sky-300">&lt;/saml:Issuer&gt;</span>
+  <span class="text-sky-300">&lt;ds:Signature&gt;</span>…<span class="text-sky-300">&lt;/ds:Signature&gt;</span>
+  <span class="text-sky-300">&lt;saml:Subject&gt;</span>
+    <span class="text-sky-300">&lt;saml:NameID&gt;</span>tess@example.com<span class="text-sky-300">&lt;/saml:NameID&gt;</span>
+  <span class="text-sky-300">&lt;/saml:Subject&gt;</span>
+  <span class="text-sky-300">&lt;saml:AttributeStatement&gt;</span>
+    <span class="text-sky-300">&lt;saml:Attribute</span> <span class="text-amber-200">Name</span>=<span class="text-emerald-300">"email"</span><span class="text-sky-300">&gt;</span>…
+<span class="text-sky-300">&lt;/saml:Assertion&gt;</span></pre>
+        </div>
+        <div role="tabpanel" id="panel-3" aria-labelledby="tab-3" hidden>
+          <dl class="grid gap-3">
+            <div><dt class="text-zinc-500">Metadata URL</dt><dd class="break-all"><%= sandbox.descriptorUrl %></dd></div>
+            <div><dt class="text-zinc-500">IdP entity ID</dt><dd class="break-all"><%= sandbox.realmUrl %></dd></div>
+            <div><dt class="text-zinc-500">SSO / SLO URL</dt><dd class="break-all"><%= sandbox.samlEndpoint %></dd></div>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<%# ================= Fact strip ================= %>
+<section class="border-b">
+  <ul class="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-8 gap-y-2 px-4 py-5 text-sm text-muted-foreground">
+    <% for (const fact of ['SAML 2.0', 'Keycloak', 'HTTP-POST & Redirect bindings', 'RSA-SHA256 signatures', 'Metadata import', 'Isolated sandbox realm']) { %>
+      <li class="flex items-center gap-2"><span class="size-1 rounded-full bg-muted-foreground/60" aria-hidden="true"></span><%= fact %></li>
+    <% } %>
+  </ul>
+</section>
+
+<%# ================= Quickstart ================= %>
+<section id="quickstart" class="scroll-mt-16">
+  <div class="mx-auto max-w-6xl px-4 py-20">
+    <div class="max-w-2xl">
+      <p class="text-sm font-medium text-muted-foreground">Quickstart</p>
+      <h2 class="mt-2 text-3xl font-semibold tracking-tight">From zero to a verified login in four steps</h2>
+      <p class="mt-3 text-muted-foreground">No identity provider to install, no tickets to raise. The sandbox is ready when you are.</p>
+    </div>
+    <ol class="mt-12 grid gap-px overflow-hidden rounded-xl border bg-border md:grid-cols-2 lg:grid-cols-4">
+      <% quickstart.forEach((s, i) => { %>
+        <li class="flex flex-col bg-background p-6">
+          <div class="flex items-center justify-between">
+            <span class="flex size-8 items-center justify-center rounded-full border font-mono text-sm"><%= i + 1 %></span>
+            <span class="text-xs text-muted-foreground"><%= s.time %></span>
+          </div>
+          <h3 class="mt-5 font-semibold"><%= s.title %></h3>
+          <p class="mt-1.5 flex-1 text-sm text-muted-foreground"><%= s.text %></p>
+          <% if (user && s.href) { %>
+            <a href="<%= s.href %>" class="mt-4 inline-flex items-center gap-1 text-sm font-medium hover:underline"><%= s.link %> <%- arrow %></a>
+          <% } %>
+        </li>
+      <% }) %>
+    </ol>
+  </div>
+</section>
+
+<%# ================= Journeys ================= %>
+<section class="border-y bg-muted/40">
+  <div class="mx-auto max-w-6xl px-4 py-20">
+    <h2 class="text-3xl font-semibold tracking-tight">What are you here to do?</h2>
+    <div class="mt-10 grid gap-4 md:grid-cols-3">
+      <% for (const j of journeys) { %>
+        <a href="<%= j.href %>" class="group card transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2">
+          <header>
+            <span class="w-fit rounded-md border px-2 py-0.5 text-xs font-medium text-muted-foreground"><%= j.tag %></span>
+            <h3 class="mt-3 text-lg font-semibold"><%= j.title %></h3>
+            <p><%= j.text %></p>
+          </header>
+          <footer>
+            <span class="inline-flex items-center gap-1 text-sm font-medium group-hover:underline"><%= j.cta %> <%- arrow %></span>
+          </footer>
+        </a>
+      <% } %>
+    </div>
+  </div>
+</section>
+
+<%# ================= Features ================= %>
+<section id="features" class="scroll-mt-16">
+  <div class="mx-auto max-w-6xl px-4 py-20">
+    <div class="max-w-2xl">
+      <p class="text-sm font-medium text-muted-foreground">Features</p>
+      <h2 class="mt-2 text-3xl font-semibold tracking-tight">Everything a SAML integration needs</h2>
+    </div>
+    <div class="mt-12 grid gap-x-10 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
+      <% for (const f of features) { %>
+        <div>
+          <span class="text-xs font-medium uppercase tracking-wider text-muted-foreground"><%= f.tag %></span>
+          <h3 class="mt-2 font-semibold"><%= f.title %></h3>
+          <p class="mt-2 text-sm leading-relaxed text-muted-foreground"><%= f.text %></p>
+        </div>
+      <% } %>
+    </div>
+  </div>
+</section>
+
+<%# ================= How the test login works ================= %>
+<section id="test-login" class="scroll-mt-16 border-t">
+  <div class="mx-auto max-w-6xl px-4 py-20">
+    <div class="max-w-2xl">
+      <p class="text-sm font-medium text-muted-foreground">How testing works</p>
+      <h2 class="mt-2 text-3xl font-semibold tracking-tight">CloakTail plays your app for one login</h2>
+      <p class="mt-3 text-muted-foreground">It sends a real AuthnRequest with your entity ID, so Keycloak treats it exactly like your app, then shows you what came back.</p>
+    </div>
+    <ol class="mt-12 grid gap-4 md:grid-cols-4">
+      <% [
+           { who: 'CloakTail', what: 'Sends an AuthnRequest as your entity ID' },
+           { who: `Keycloak · ${sandboxRealm}`, what: 'Shows its sign-in page for your client' },
+           { who: 'You', what: 'Sign in as one of your test users' },
+           { who: 'CloakTail', what: 'Validates the signed response and shows every check' },
+         ].forEach((step, i, all) => { %>
+        <li class="relative rounded-xl border p-5">
+          <p class="font-mono text-xs text-muted-foreground"><%= String(i + 1).padStart(2, '0') %> · <%= step.who %></p>
+          <p class="mt-2 text-sm font-medium"><%= step.what %></p>
+          <% if (i < all.length - 1) { %>
+            <span class="absolute -right-3 top-1/2 z-10 hidden -translate-y-1/2 rounded-full border bg-background p-0.5 text-muted-foreground md:block"><%- arrow %></span>
+          <% } %>
+        </li>
+      <% }) %>
+    </ol>
+    <p class="mt-6 text-sm text-muted-foreground">
+      Clients that require signed requests are tested from your own app, since only your app holds its private key.
+      Encrypted assertions can be checked but not read by CloakTail.
+    </p>
+  </div>
+</section>
+
+<%# ================= Registration + Troubleshooting ================= %>
+<section class="border-t bg-muted/40">
+  <div class="mx-auto grid max-w-6xl gap-12 px-4 py-20 lg:grid-cols-2">
+    <div id="register" class="scroll-mt-16">
+      <p class="text-sm font-medium text-muted-foreground">Registration</p>
+      <h2 class="mt-2 text-3xl font-semibold tracking-tight">Getting an account</h2>
+      <ul class="mt-8 grid gap-5 text-sm">
+        <li>
+          <p class="font-medium">Who can register</p>
+          <p class="mt-1 text-muted-foreground">Developers building apps that sign in through Keycloak. Use your work email.</p>
+        </li>
+        <li>
+          <p class="font-medium">What you need</p>
+          <p class="mt-1 text-muted-foreground">A username (3–40 lowercase letters, digits, <code>.</code> <code>_</code> <code>-</code>), your name, and a password of at least 8 characters. The realm’s password policy may add rules.</p>
+        </li>
+        <li>
+          <p class="font-medium">What you get</p>
+          <p class="mt-1 text-muted-foreground">The developer role: up to <%= maxApps %> SAML clients and <%= maxTestUsers %> test users in the sandbox, plus the certificate generator.</p>
+        </li>
+        <li>
+          <p class="font-medium">Before you start</p>
+          <p class="mt-1 text-muted-foreground">You’ll be asked to accept the <a href="/disclaimer" class="underline underline-offset-4">disclaimer</a>: the sandbox is for testing only, so never use real personal data.</p>
+        </li>
+      </ul>
+      <% if (!user && registrationEnabled) { %>
+        <a href="/register" class="btn mt-8">Create developer account</a>
+      <% } %>
+    </div>
+
+    <div id="troubleshooting" class="scroll-mt-16">
+      <p class="text-sm font-medium text-muted-foreground">Troubleshooting</p>
+      <h2 class="mt-2 text-3xl font-semibold tracking-tight">Common problems</h2>
+      <div class="accordion mt-8 rounded-xl border bg-background">
+        <% problems.forEach((p, i) => { %>
+          <details class="<%= i ? 'border-t' : '' %>" <%= i === 0 ? 'open' : '' %>>
+            <summary class="px-5 py-4 text-sm font-medium"><%= p.q %> <%- chevron %></summary>
+            <p class="px-5 pb-4 text-sm text-muted-foreground"><%= p.a %></p>
+          </details>
+        <% }) %>
+      </div>
+    </div>
+  </div>
+</section>
+
+<%# ================= Closing CTA ================= %>
+<section class="bg-zinc-950 text-zinc-100">
+  <div class="mx-auto flex max-w-6xl flex-col items-start justify-between gap-6 px-4 py-16 md:flex-row md:items-center">
+    <div>
+      <h2 class="text-2xl font-semibold tracking-tight sm:text-3xl">Ready to test your SAML integration with CloakTail?</h2>
+      <p class="mt-2 text-zinc-400">Create a client, sign in as a test user, and see exactly what your app will receive.</p>
+    </div>
+    <div class="flex flex-wrap gap-3">
+      <a href="<%= primary.href %>" class="btn bg-white text-zinc-950 hover:bg-zinc-200" data-size="lg"><%= primary.label %></a>
+      <% if (!user) { %>
+        <a href="/login" class="btn border border-zinc-700 !bg-transparent !text-zinc-100 hover:!bg-zinc-900" data-variant="ghost" data-size="lg">Sign in</a>
+      <% } %>
+    </div>
+  </div>
+</section>
+
+<script>
+  // Accessible tabs for the hero preview (arrow keys move between tabs).
+  document.querySelectorAll('[data-tabs]').forEach((root) => {
+    const tabs = [...root.querySelectorAll('[role=tab]')];
+    const select = (tab) => {
+      tabs.forEach((t) => {
+        const on = t === tab;
+        t.setAttribute('aria-selected', on);
+        t.tabIndex = on ? 0 : -1;
+        root.querySelector('#' + t.getAttribute('aria-controls')).hidden = !on;
+      });
+    };
+    tabs.forEach((tab, i) => {
+      tab.addEventListener('click', () => select(tab));
+      tab.addEventListener('keydown', (e) => {
+        const next = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+        if (!next) return;
+        const target = tabs[(i + next + tabs.length) % tabs.length];
+        select(target);
+        target.focus();
+      });
+    });
+  });
+</script>
+<%- include('../partials/footer', { fullFooter: true }) %>

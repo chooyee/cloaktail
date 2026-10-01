@@ -1,0 +1,37 @@
+<%- include('../../partials/header') %>
+<a href="/users" class="text-sm text-muted-foreground hover:underline">← Users</a>
+<div class="mt-2 flex flex-wrap items-center gap-3">
+  <h1 class="text-2xl font-semibold"><%= kcUser.username %></h1>
+  <% if (kcUser.enabled) { %><span class="badge" data-variant="outline">Enabled</span>
+  <% } else { %><span class="badge" data-variant="destructive">Disabled</span><% } %>
+</div>
+<p class="mt-1 text-sm text-muted-foreground">
+  Created <%= new Date(kcUser.createdTimestamp).toLocaleString() %>
+  · Last sign-in to this app: <%= localUser?.last_login_at ? new Date(localUser.last_login_at + 'Z').toLocaleString() : 'never' %>
+</p>
+
+<% if (created) { %>
+  <div class="alert mt-6" role="status"><section>User created in Keycloak.</section></div>
+<% } %>
+
+<div class="mt-6 grid gap-6 lg:grid-cols-2">
+  <%- include('../../fragments/user-profile', { message: null, error: null }) %>
+  <%- include('../../fragments/user-roles', { message: null, error: null }) %>
+  <% if (can('users.reset_password')) { %>
+    <%- include('../../fragments/user-password', { message: null, error: null }) %>
+  <% } %>
+  <% if (can('users.delete') && kcUser.username.toLowerCase() !== user.username) { %>
+    <div class="card border-destructive/50">
+      <header>
+        <h2>Delete user</h2>
+        <p>Permanently removes the account from Keycloak and its roles from this app.</p>
+      </header>
+      <footer class="flex justify-end">
+        <button class="btn" data-variant="destructive"
+                hx-post="/users/<%= kcUser.id %>/delete"
+                hx-confirm="Delete <%= kcUser.username %> from Keycloak? This cannot be undone.">Delete user</button>
+      </footer>
+    </div>
+  <% } %>
+</div>
+<%- include('../../partials/footer') %>

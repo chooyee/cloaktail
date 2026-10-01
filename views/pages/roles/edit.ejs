@@ -1,0 +1,36 @@
+<%- include('../../partials/header') %>
+<a href="/roles" class="text-sm text-muted-foreground hover:underline">← Roles</a>
+<div class="mt-2 flex items-center gap-3">
+  <h1 class="text-2xl font-semibold"><%= role.name %></h1>
+  <% if (role.is_system) { %><span class="badge" data-variant="outline">system</span><% } %>
+</div>
+
+<div class="mt-6 grid gap-6 lg:grid-cols-[1fr_20rem]">
+  <%- include('../../fragments/role-form') %>
+
+  <div class="grid gap-6 self-start">
+    <div class="card">
+      <header>
+        <h2>Users with this role</h2>
+      </header>
+      <section class="flex flex-wrap gap-2">
+        <% for (const u of role.users) { %><span class="badge" data-variant="secondary"><%= u %></span><% } %>
+        <% if (role.users.length === 0) { %><span class="text-sm text-muted-foreground">None yet. Assign it from a user's page.</span><% } %>
+      </section>
+    </div>
+
+    <% if (can('roles.manage') && !role.is_system) { %>
+      <div class="card">
+        <header>
+          <h2>Delete role</h2>
+          <p>Removes it from <%= role.users.length %> user<%= role.users.length === 1 ? '' : 's' %>.</p>
+        </header>
+        <footer class="flex justify-end">
+          <button class="btn" data-variant="destructive" hx-post="/roles/<%= role.id %>/delete"
+                  hx-confirm="Delete role <%= role.name %>?">Delete role</button>
+        </footer>
+      </div>
+    <% } %>
+  </div>
+</div>
+<%- include('../../partials/footer') %>

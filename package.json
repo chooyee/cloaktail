@@ -1,0 +1,32 @@
+{
+  "name": "cloaktail",
+  "version": "1.0.0",
+  "description": "CloakTail: the self-service developer portal for Keycloak SAML",
+  "main": "src/server.js",
+  "scripts": {
+    "build:css": "tailwindcss -i styles/app.css -o public/css/app.css --minify",
+    "watch:css": "tailwindcss -i styles/app.css -o public/css/app.css --watch",
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "admin": "node scripts/admin-user.js"
+  },
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@node-saml/passport-saml": "^5.1.1",
+    "@xmldom/xmldom": "^0.9.12",
+    "basecoat-css": "^1.0.2",
+    "better-sqlite3": "^13.0.3",
+    "dotenv": "^18.0.4",
+    "ejs": "^6.0.1",
+    "express": "^5.2.1",
+    "express-session": "^1.19.0",
+    "htmx.org": "^2.0.11",
+    "passport": "^0.7.0",
+    "selfsigned": "^5.5.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "tailwindcss": "^4.3.3"
+  }
+}

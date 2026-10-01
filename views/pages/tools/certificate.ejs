@@ -1,0 +1,132 @@
+<%- include('../../partials/header') %>
+<div id="cert-page">
+  <h1 class="text-2xl font-semibold">Certificate generator</h1>
+  <p class="mt-1 max-w-2xl text-muted-foreground">
+    Create an RSA key pair and self-signed X.509 certificate (PEM) for your SAML service provider: to sign requests,
+    or to receive encrypted assertions from Keycloak.
+  </p>
+
+  <div class="alert mt-6" role="note">
+    <h2>For sandbox testing only</h2>
+    <section>
+      The key is generated on the portal server and shown to you once; it is not stored. For production, generate keys on infrastructure you control
+      (see the OpenSSL command below). <a href="/disclaimer" class="underline underline-offset-4">Disclaimer</a>
+    </section>
+  </div>
+
+  <div class="mt-6 grid gap-6 lg:grid-cols-[22rem_1fr]">
+    <form class="card self-start" hx-post="/tools/certificate" hx-target="#cert-page" hx-select="#cert-page" hx-swap="outerHTML"
+          hx-disabled-elt="find button[type=submit]">
+      <header>
+        <h2>Certificate details</h2>
+      </header>
+      <section class="grid gap-4">
+        <%- include('../../fragments/form-status') %>
+        <div class="field">
+          <label for="commonName">Common name (CN)</label>
+          <input id="commonName" name="commonName" type="text" required maxlength="64" placeholder="myapp.example.com" value="<%= values.commonName %>">
+          <p>Usually your app’s host name or entity ID.</p>
+        </div>
+        <div class="field">
+          <label for="organization">Organization <span class="text-muted-foreground">(optional)</span></label>
+          <input id="organization" name="organization" type="text" maxlength="64" value="<%= values.organization %>">
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div class="field">
+            <label for="keySize">Key size</label>
+            <select id="keySize" name="keySize">
+              <% for (const k of KEY_SIZES) { %><option value="<%= k %>" <%= values.keySize === k ? 'selected' : '' %>><%= k %> bit</option><% } %>
+            </select>
+          </div>
+          <div class="field">
+            <label for="years">Valid for</label>
+            <select id="years" name="years">
+              <% for (const y of VALIDITY_YEARS) { %><option value="<%= y %>" <%= values.years === y ? 'selected' : '' %>><%= y %> year<%= y > 1 ? 's' : '' %></option><% } %>
+            </select>
+          </div>
+        </div>
+      </section>
+      <footer class="flex justify-end">
+        <button type="submit" class="btn">
+          <span class="in-[.htmx-request]:hidden">Generate</span>
+          <span class="hidden in-[.htmx-request]:inline">Generating…</span>
+        </button>
+      </footer>
+    </form>
+
+    <div class="grid gap-6 self-start">
+      <% if (result) { %>
+        <div class="card">
+          <header>
+            <h2>Your certificate</h2>
+            <p><%= result.subject %> · valid until <%= result.validTo %></p>
+          </header>
+          <section class="grid gap-4">
+            <p class="break-all font-mono text-xs text-muted-foreground">SHA-256 <%= result.fingerprint %></p>
+            <div class="field">
+              <div class="flex items-center justify-between gap-2">
+                <label for="cert-pem">Certificate: <code><%= result.fileBase %>-cert.pem</code></label>
+                <div class="flex gap-1">
+                  <button type="button" class="btn" data-variant="ghost" data-size="xs" data-copy="<%= result.certificate %>">Copy</button>
+                  <button type="button" class="btn" data-variant="outline" data-size="xs" data-download="<%= result.fileBase %>-cert.pem" data-source="#cert-pem">Download</button>
+                </div>
+              </div>
+              <textarea id="cert-pem" rows="8" readonly class="font-mono text-xs"><%= result.certificate %></textarea>
+              <p>Public. Paste it into your application’s <em>signing</em> or <em>encryption certificate</em> field in the portal.</p>
+            </div>
+            <div class="field">
+              <div class="flex items-center justify-between gap-2">
+                <label for="key-pem">Private key: <code><%= result.fileBase %>-key.pem</code></label>
+                <div class="flex gap-1">
+                  <button type="button" class="btn" data-variant="ghost" data-size="xs" data-copy="<%= result.privateKey %>">Copy</button>
+                  <button type="button" class="btn" data-variant="outline" data-size="xs" data-download="<%= result.fileBase %>-key.pem" data-source="#key-pem">Download</button>
+                </div>
+              </div>
+              <textarea id="key-pem" rows="8" readonly class="font-mono text-xs"><%= result.privateKey %></textarea>
+              <p class="text-destructive">Secret. Save it now: it is not stored and can’t be shown again. Configure it only in your app, never in the portal.</p>
+            </div>
+          </section>
+        </div>
+
+        <div class="card">
+          <header><h2>Next steps</h2></header>
+          <section>
+            <ol class="grid list-decimal gap-2 pl-5 text-sm">
+              <li>Configure your SAML library with the private key (for example <code>privateKey</code> in passport-saml).</li>
+              <li>Open your application in the portal, choose <strong>Edit settings</strong>, and paste the certificate into
+                <em>Your app’s signing certificate</em> (turn on <em>Require signed requests</em>), and/or
+                <em>Your app’s encryption certificate</em> (turn on <em>Encrypt assertions</em>).</li>
+              <li>Test the login from your app. The portal’s own test login can’t sign on your app’s behalf.</li>
+            </ol>
+          </section>
+        </div>
+      <% } else { %>
+        <div class="card">
+          <header>
+            <h2>When do I need a certificate?</h2>
+          </header>
+          <section class="grid gap-3 text-sm text-muted-foreground">
+            <p><strong class="text-foreground">Signed requests:</strong> your app signs its AuthnRequests so Keycloak knows they are genuine. Keycloak needs your certificate.</p>
+            <p><strong class="text-foreground">Encrypted assertions:</strong> Keycloak encrypts user data with your certificate, and only your app’s private key can read it.</p>
+            <p>Neither is required to get started: Keycloak always signs its responses with the realm key.</p>
+          </section>
+        </div>
+      <% } %>
+
+      <div class="card">
+        <header>
+          <h2>Generate it yourself</h2>
+          <p>Recommended for production: the private key never leaves your machine.</p>
+        </header>
+        <section>
+          <% const cmd = `openssl req -x509 -newkey rsa:${values.keySize} -sha256 -nodes -days ${values.years * 365} -keyout sp-key.pem -out sp-cert.pem -subj "/CN=${values.commonName || 'myapp.example.com'}"`; %>
+          <div class="relative">
+            <pre class="overflow-x-auto rounded-lg bg-muted p-4 pr-16 text-xs"><code><%= cmd %></code></pre>
+            <button type="button" class="btn absolute right-2 top-2" data-variant="outline" data-size="xs" data-copy="<%= cmd %>">Copy</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+<%- include('../../partials/footer') %>

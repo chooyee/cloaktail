@@ -1,0 +1,100 @@
+<%- include('../../partials/header') %>
+<% const r = run.result, d = r.details; %>
+<a href="/apps/<%= app.id %>" class="text-sm text-muted-foreground hover:underline">← <%= app.name %></a>
+<div class="mt-2 flex flex-wrap items-center justify-between gap-4">
+  <div>
+    <div class="flex items-center gap-3">
+      <h1 class="text-2xl font-semibold">Test result</h1>
+      <span class="badge" data-variant="<%= run.ok ? 'outline' : 'destructive' %>"><%= run.ok ? 'Passed' : 'Failed' %></span>
+    </div>
+    <p class="mt-1 text-sm text-muted-foreground">
+      <%= new Date(run.created_at + 'Z').toLocaleString() %> · started by <%= r.startedBy %> · <%= run.summary %>
+    </p>
+  </div>
+  <form method="post" action="/apps/<%= app.id %>/test">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <button type="submit" class="btn">Run again</button>
+  </form>
+</div>
+
+<div class="mt-6 grid gap-6 lg:grid-cols-2">
+  <div class="card">
+    <header><h2>Checks</h2></header>
+    <section>
+      <ul class="grid gap-3">
+        <% for (const c of r.checks) { %>
+          <li class="flex items-start gap-3">
+            <span class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-bold
+                         <%= c.ok === true ? 'bg-primary text-primary-foreground' : c.ok === false ? 'bg-destructive text-white' : 'border text-muted-foreground' %>"
+                  aria-label="<%= c.ok === true ? 'passed' : c.ok === false ? 'failed' : 'info' %>"><%= c.ok === true ? '✓' : c.ok === false ? '✕' : 'i' %></span>
+            <div class="min-w-0">
+              <p class="text-sm font-medium"><%= c.label %></p>
+              <p class="break-words text-sm text-muted-foreground"><%= c.detail %></p>
+            </div>
+          </li>
+        <% } %>
+      </ul>
+    </section>
+  </div>
+
+  <div class="card">
+    <header><h2>Subject and session</h2></header>
+    <section>
+      <dl class="grid grid-cols-[9rem_1fr] gap-x-4 gap-y-2 text-sm">
+        <dt class="text-muted-foreground">Name ID</dt><dd class="break-all font-mono text-xs"><%= d.nameId?.value || '—' %></dd>
+        <dt class="text-muted-foreground">Name ID format</dt><dd class="break-all font-mono text-xs"><%= d.nameId?.format || '—' %></dd>
+        <dt class="text-muted-foreground">Session index</dt><dd class="break-all font-mono text-xs"><%= d.authn?.sessionIndex || '—' %></dd>
+        <dt class="text-muted-foreground">Authenticated at</dt><dd><%= d.authn?.instant || '—' %></dd>
+        <dt class="text-muted-foreground">Valid</dt><dd><%= d.conditions ? `${d.conditions.notBefore} → ${d.conditions.notOnOrAfter}` : '—' %></dd>
+        <dt class="text-muted-foreground">Audience</dt><dd class="break-all font-mono text-xs"><%= d.audiences.join(', ') || '—' %></dd>
+        <dt class="text-muted-foreground">Issuer</dt><dd class="break-all font-mono text-xs"><%= d.issuer || '—' %></dd>
+        <dt class="text-muted-foreground">In response to</dt><dd class="break-all font-mono text-xs"><%= d.inResponseTo || '—' %></dd>
+      </dl>
+    </section>
+  </div>
+
+  <div class="card lg:col-span-2">
+    <header>
+      <h2>Attributes</h2>
+      <p>These are what your app will receive for this user.</p>
+    </header>
+    <section>
+      <% if (!d.attributes.length) { %>
+        <p class="text-sm text-muted-foreground"><%= d.encrypted ? 'Encrypted: not readable by the portal.' : 'No attributes in the assertion.' %></p>
+      <% } else { %>
+        <div class="table-container rounded-lg border">
+          <table class="table">
+            <thead><tr><th>Name</th><th>Name format</th><th>Values</th></tr></thead>
+            <tbody>
+              <% for (const a of d.attributes) { %>
+                <tr>
+                  <td class="font-mono text-xs"><%= a.name %></td>
+                  <td class="font-mono text-xs text-muted-foreground"><%= (a.nameFormat || '').split(':').pop() || '—' %></td>
+                  <td><%= a.values.join(', ') %></td>
+                </tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </section>
+  </div>
+
+  <div class="card lg:col-span-2">
+    <header>
+      <h2>Raw SAML response</h2>
+      <p>Decoded from the <code>SAMLResponse</code> Keycloak posted.</p>
+    </header>
+    <section>
+      <% if (r.xml) { %>
+        <div class="relative">
+          <pre class="max-h-[32rem] overflow-auto rounded-lg bg-muted p-4 text-xs"><code><%= r.xml %></code></pre>
+          <button type="button" class="btn absolute right-4 top-2" data-variant="outline" data-size="xs" data-copy="<%= r.xml %>">Copy</button>
+        </div>
+      <% } else { %>
+        <p class="text-sm text-muted-foreground">No SAML response was received.</p>
+      <% } %>
+    </section>
+  </div>
+</div>
+<%- include('../../partials/footer') %>

@@ -1,0 +1,22 @@
+<form id="user-roles" class="card" hx-post="/users/<%= kcUser.id %>/roles" hx-swap="outerHTML">
+  <header>
+    <h2>App roles</h2>
+    <p>Controls what this user can do in this app.</p>
+  </header>
+  <section class="grid gap-4">
+    <%- include('form-status') %>
+    <% if (can('users.assign_roles')) { %>
+      <%- include('role-checkboxes', { roles, selectedIds: appRoles.map((r) => r.id) }) %>
+    <% } else { %>
+      <div class="flex flex-wrap gap-2">
+        <% for (const r of appRoles) { %><span class="badge" data-variant="secondary"><%= r.name %></span><% } %>
+        <% if (appRoles.length === 0) { %><span class="text-sm text-muted-foreground">No roles assigned.</span><% } %>
+      </div>
+    <% } %>
+  </section>
+  <% if (can('users.assign_roles')) { %>
+    <footer class="flex justify-end">
+      <button type="submit" class="btn">Save roles</button>
+    </footer>
+  <% } %>
+</form>

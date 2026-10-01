@@ -1,0 +1,60 @@
+<%- include('../../partials/header') %>
+<a href="/users" class="text-sm text-muted-foreground hover:underline">← Users</a>
+<h1 class="mt-2 text-2xl font-semibold">New user</h1>
+<p class="mt-1 text-muted-foreground">Creates the account in Keycloak and assigns app roles here.</p>
+
+<form id="user-form" class="card mt-6 max-w-2xl" method="post" action="/users"
+      hx-post="/users" hx-target="#user-form" hx-select="#user-form" hx-swap="outerHTML">
+  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+  <section class="grid gap-6">
+    <%- include('../../fragments/form-status', { error }) %>
+
+    <div class="grid gap-4 sm:grid-cols-2">
+      <div class="field sm:col-span-2">
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" required autocomplete="off" value="<%= values.username || '' %>">
+      </div>
+      <div class="field">
+        <label for="firstName">First name</label>
+        <input id="firstName" name="firstName" type="text" value="<%= values.firstName || '' %>">
+      </div>
+      <div class="field">
+        <label for="lastName">Last name</label>
+        <input id="lastName" name="lastName" type="text" value="<%= values.lastName || '' %>">
+      </div>
+      <div class="field sm:col-span-2">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" value="<%= values.email || '' %>">
+      </div>
+      <div class="field">
+        <label for="password">Initial password</label>
+        <input id="password" name="password" type="password" autocomplete="new-password">
+        <p>Optional. Leave empty to set it later.</p>
+      </div>
+      <div class="field">
+        <label for="confirmPassword">Confirm password</label>
+        <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password">
+      </div>
+      <div class="field" data-orientation="horizontal">
+        <input type="checkbox" id="temporary" name="temporary" <%= values.temporary ? 'checked' : '' %>>
+        <label for="temporary">User must change password at first login</label>
+      </div>
+      <div class="field" data-orientation="horizontal">
+        <input type="checkbox" role="switch" id="enabled" name="enabled" <%= values.enabled ? 'checked' : '' %>>
+        <label for="enabled">Enabled</label>
+      </div>
+    </div>
+
+    <% if (can('users.assign_roles')) { %>
+      <fieldset class="fieldset">
+        <legend class="mb-3 text-sm font-medium">App roles</legend>
+        <%- include('../../fragments/role-checkboxes', { roles, selectedIds: values.roleIds || [] }) %>
+      </fieldset>
+    <% } %>
+  </section>
+  <footer class="flex justify-end gap-2">
+    <a href="/users" class="btn" data-variant="outline">Cancel</a>
+    <button type="submit" class="btn">Create user</button>
+  </footer>
+</form>
+<%- include('../../partials/footer') %>

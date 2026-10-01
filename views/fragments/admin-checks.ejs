@@ -1,0 +1,16 @@
+<%# Result list of the admin console's Keycloak connection test. Expects `checks`: [{ name, ok, detail }]. %>
+<% const failed = checks.filter((c) => !c.ok).length; %>
+<p class="text-sm font-medium <%= failed ? 'text-destructive' : '' %>">
+  <%= failed ? `${failed} of ${checks.length} checks failed` : `All ${checks.length} checks passed` %>
+</p>
+<ul class="mt-3 grid gap-3">
+  <% for (const c of checks) { %>
+    <li class="flex gap-2 text-sm">
+      <span class="<%= c.ok ? 'text-green-600' : 'text-destructive' %>" aria-hidden="true"><%= c.ok ? '✓' : '✗' %></span>
+      <div class="min-w-0">
+        <p class="font-medium"><span class="sr-only"><%= c.ok ? 'Passed:' : 'Failed:' %></span> <%= c.name %></p>
+        <p class="break-words text-xs text-muted-foreground"><%= c.detail %></p>
+      </div>
+    </li>
+  <% } %>
+</ul>

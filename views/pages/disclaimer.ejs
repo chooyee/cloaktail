@@ -1,0 +1,56 @@
+<%- include('../partials/header') %>
+<article class="mx-auto max-w-3xl py-6">
+  <h1 class="text-3xl font-semibold tracking-tight">Disclaimer</h1>
+  <p class="mt-2 text-muted-foreground">Please read this before using CloakTail.</p>
+
+  <div class="mt-8 grid gap-8 text-sm leading-relaxed">
+    <section>
+      <h2 class="text-base font-semibold">For development and testing only</h2>
+      <p class="mt-2 text-muted-foreground">
+        CloakTail and its <code><%= sandboxRealm %></code> sandbox realm are provided to help developers build and test SAML integrations.
+        They are not a production identity service. Do not connect production applications to the sandbox or rely on it for real users.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-base font-semibold">No real personal data or credentials</h2>
+      <p class="mt-2 text-muted-foreground">
+        Test users must use made-up names and email addresses. Never enter real people’s personal data, and never reuse a password you use anywhere else.
+        SAML test results, including attribute values and the raw response, are stored in the portal and visible to administrators.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-base font-semibold">Generated keys and certificates</h2>
+      <p class="mt-2 text-muted-foreground">
+        The certificate generator creates self-signed certificates for sandbox testing. Keys are generated on the portal server, sent to your browser once and not stored,
+        but they are not suitable for production. Generate production keys on infrastructure you control and keep private keys secret.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-base font-semibold">Availability and data retention</h2>
+      <p class="mt-2 text-muted-foreground">
+        The sandbox is provided as-is, without any service level or warranty. Applications, test users and test history may be changed, reset or deleted at any time,
+        for example when an account is removed or the sandbox is rebuilt. Keep your own copy of any configuration you need.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-base font-semibold">Acceptable use</h2>
+      <p class="mt-2 text-muted-foreground">
+        Use the portal only to integrate applications you are authorised to work on. Do not use it to impersonate other services, collect other people’s credentials,
+        or probe or overload Keycloak. Activity is logged, and accounts that misuse the portal may be disabled without notice.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-base font-semibold">Your responsibility</h2>
+      <p class="mt-2 text-muted-foreground">
+        A successful test in the sandbox does not guarantee your application is secure or production-ready.
+        You remain responsible for your application’s SAML configuration, certificate handling and security review before going live.
+      </p>
+    </section>
+  </div>
+</article>
+<%- include('../partials/footer') %>

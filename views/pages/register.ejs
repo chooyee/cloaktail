@@ -1,0 +1,118 @@
+<%- include('../partials/header') %>
+<%
+  const err = (name) => (field === name ? error : null);
+  const generalError = error && !field ? error : null;
+  const perks = [
+    `Up to ${maxApps} SAML clients in the ${sandboxRealm} sandbox`,
+    `Up to ${maxTestUsers} test users to sign in with`,
+    'One-click test login with the full SAML response',
+    'Certificate generator for signing and encryption',
+  ];
+  const check = '<svg class="mt-0.5 size-4 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M16.7 5.3a1 1 0 0 1 0 1.4l-8 8a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.4L8 12.6l7.3-7.3a1 1 0 0 1 1.4 0Z" clip-rule="evenodd"/></svg>';
+%>
+<div class="grid items-start gap-10 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,28rem)] lg:gap-16 lg:py-10">
+
+  <%# ---------- Context: what you get and what happens next ---------- %>
+  <section class="lg:pt-6">
+    <p class="text-sm font-medium text-muted-foreground">Developer account</p>
+    <h1 class="mt-2 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Create your CloakTail account</h1>
+    <p class="mt-3 max-w-md text-muted-foreground text-pretty">Get your own sandbox for building and testing SAML single sign-on against Keycloak.</p>
+
+    <div class="mt-10 hidden lg:block">
+      <h2 class="text-sm font-semibold">What you get</h2>
+      <ul class="mt-4 grid gap-3 text-sm">
+        <% for (const perk of perks) { %>
+          <li class="flex items-start gap-3"><%- check %><span><%= perk %></span></li>
+        <% } %>
+      </ul>
+
+      <h2 class="mt-10 text-sm font-semibold">What happens next</h2>
+      <ol class="mt-4 grid gap-4 text-sm">
+        <% [
+             ['Create your account', 'Takes under a minute.'],
+             ['Sign in with Keycloak', 'Use the username and password you choose here.'],
+             ['Register your first app', 'Then run a test login to see what Keycloak sends.'],
+           ].forEach(([title, text], i) => { %>
+          <li class="flex gap-3">
+            <span class="flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-medium"><%= i + 1 %></span>
+            <div><p class="font-medium"><%= title %></p><p class="text-muted-foreground"><%= text %></p></div>
+          </li>
+        <% }) %>
+      </ol>
+    </div>
+  </section>
+
+  <%# ---------- Form ---------- %>
+  <form id="register-form" class="card" method="post" action="/register">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <section class="grid gap-4">
+      <% if (generalError) { %>
+        <div class="alert" data-variant="destructive" role="alert"><section><%= generalError %></section></div>
+      <% } %>
+
+      <div class="grid gap-4 sm:grid-cols-2">
+        <%- include('../fragments/text-field', { name: 'firstName', label: 'First name', value: values.firstName, autocomplete: 'given-name', attrs: 'required maxlength="100"', invalid: err('firstName') }) %>
+        <%- include('../fragments/text-field', { name: 'lastName', label: 'Last name', value: values.lastName, autocomplete: 'family-name', attrs: 'required maxlength="100"', invalid: err('lastName') }) %>
+      </div>
+
+      <%- include('../fragments/text-field', { name: 'email', label: 'Work email', type: 'email', value: values.email, autocomplete: 'email',
+            attrs: 'required placeholder="name@company.com"', invalid: err('email') }) %>
+
+      <%- include('../fragments/text-field', { name: 'username', label: 'Username', value: values.username, autocomplete: 'username',
+            hint: '3–40 characters: letters, digits, dots, dashes or underscores. You’ll use it to sign in.',
+            attrs: 'required minlength="3" maxlength="40" pattern="[A-Za-z0-9][A-Za-z0-9._\\-]{2,39}" autocapitalize="none" spellcheck="false"', invalid: err('username') }) %>
+
+      <%- include('../fragments/text-field', { name: 'password', label: 'Password', type: 'password', autocomplete: 'new-password', reveal: true,
+            hint: error ? 'For your security, passwords aren’t kept after an error. Please enter it again.' : 'At least 8 characters. Your organization’s password policy may require more.',
+            attrs: 'required minlength="8"', invalid: err('password') }) %>
+
+      <%- include('../fragments/text-field', { name: 'confirmPassword', label: 'Confirm password', type: 'password', autocomplete: 'new-password', reveal: true,
+            attrs: 'required minlength="8"', invalid: err('confirmPassword') }) %>
+
+      <%# Consent: the sentence is one span so the link flows inline (the label itself is a flex container). %>
+      <div class="field rounded-md border bg-muted/40 px-3 py-2.5" data-orientation="horizontal" <%- err('acceptDisclaimer') ? 'data-invalid="true"' : '' %>>
+        <input type="checkbox" id="acceptDisclaimer" name="acceptDisclaimer" required
+               <%- err('acceptDisclaimer') ? 'aria-invalid="true" autofocus aria-describedby="acceptDisclaimer-error"' : '' %>>
+        <section>
+          <label for="acceptDisclaimer" class="block text-xs font-normal leading-relaxed">
+            <span>I’ve read the <a href="/disclaimer" target="_blank" rel="noopener" class="font-medium underline underline-offset-4">disclaimer<span class="sr-only"> (opens in a new tab)</span></a>
+            and understand the sandbox is for testing only. I won’t enter real personal data.</span>
+          </label>
+          <% if (err('acceptDisclaimer')) { %><p id="acceptDisclaimer-error" class="text-xs text-destructive"><%= error %></p><% } %>
+        </section>
+      </div>
+
+      <%# Honeypot for bots: hidden from people and assistive tech. %>
+      <div class="absolute -left-[9999px]" aria-hidden="true">
+        <label for="website">Website</label>
+        <input id="website" name="website" type="text" tabindex="-1" autocomplete="off">
+      </div>
+    </section>
+    <footer class="grid gap-3">
+      <button type="submit" class="btn w-full">Create account</button>
+      <p class="text-center text-sm text-muted-foreground">
+        Already have an account? <a href="/login" class="font-medium text-foreground underline underline-offset-4">Sign in</a>
+      </p>
+    </footer>
+  </form>
+</div>
+
+<script>
+  // Show/Hide toggles for password fields.
+  document.querySelectorAll('[data-reveal]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const input = document.getElementById(btn.dataset.reveal);
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      btn.textContent = show ? 'Hide' : 'Show';
+      btn.setAttribute('aria-pressed', String(show));
+    });
+  });
+  // Prevent double submission while Keycloak creates the account.
+  document.getElementById('register-form').addEventListener('submit', (e) => {
+    const btn = e.target.querySelector('button[type=submit]');
+    btn.disabled = true;
+    btn.textContent = 'Creating account…';
+  });
+</script>
+<%- include('../partials/footer') %>

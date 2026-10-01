@@ -1,0 +1,36 @@
+<%- include('../../partials/header') %>
+<div class="mx-auto flex max-w-md flex-col py-6 sm:py-12">
+  <div class="text-center">
+    <div class="mx-auto w-fit scale-125"><%- include('../../partials/logo') %></div>
+    <h1 class="mt-6 text-2xl font-semibold tracking-tight">Welcome to CloakTail</h1>
+    <p class="mt-2 text-sm text-muted-foreground">
+      Create the administrator account. You’ll use it to connect CloakTail to Keycloak and to add more administrators.
+    </p>
+  </div>
+
+  <form class="card mt-8" method="post" action="/admin/setup">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <section class="grid gap-4">
+      <div class="alert" role="note">
+        <h2>Where is the setup token?</h2>
+        <section>
+          It’s printed in the server log at startup. With Docker, run <code>docker logs &lt;container&gt;</code>.
+          It changes on every restart.
+        </section>
+      </div>
+      <% if (error && !field) { %><%- include('../../fragments/form-status', { error, message: null }) %><% } %>
+      <%- include('../../fragments/text-field', { name: 'setupToken', label: 'Setup token', autocomplete: 'off',
+            attrs: 'required spellcheck="false"', invalid: field === 'setupToken' && error }) %>
+      <%- include('../../fragments/text-field', { name: 'username', label: 'Username', value: values.username, autocomplete: 'username',
+            attrs: 'required autocapitalize="none" spellcheck="false"', invalid: field === 'username' && error }) %>
+      <%- include('../../fragments/text-field', { name: 'password', label: 'Password', type: 'password', autocomplete: 'new-password',
+            hint: 'At least 12 characters, not containing the username.', attrs: 'required', invalid: field === 'password' && error }) %>
+      <%- include('../../fragments/text-field', { name: 'confirmPassword', label: 'Confirm password', type: 'password', autocomplete: 'new-password',
+            attrs: 'required', invalid: field === 'confirmPassword' && error }) %>
+    </section>
+    <footer>
+      <button type="submit" class="btn w-full">Create administrator</button>
+    </footer>
+  </form>
+</div>
+<%- include('../../partials/footer') %>

@@ -1,0 +1,33 @@
+<%#
+  Labelled input with an optional hint and inline error.
+  Params: name, label, type='text', value='', hint, autocomplete, attrs (raw extra attributes),
+          reveal (adds a Show/Hide toggle for passwords), invalid (error message for this field).
+%>
+<%
+  const t = typeof type !== 'undefined' ? type : 'text';
+  const v = typeof value !== 'undefined' && value !== null ? value : '';
+  const h = typeof hint !== 'undefined' ? hint : null;
+  const err = typeof invalid !== 'undefined' && invalid ? invalid : null;
+  const describedBy = [h && `${name}-hint`, err && `${name}-error`].filter(Boolean).join(' ');
+  const withReveal = typeof reveal !== 'undefined' && reveal;
+%>
+<div class="field gap-1.5" <%- err ? 'data-invalid="true"' : '' %>>
+  <label for="<%= name %>"><%= label %></label>
+  <% if (withReveal) { %>
+    <div class="relative">
+      <input id="<%= name %>" name="<%= name %>" type="<%= t %>" class="input h-9 w-full py-0 pr-16" value="<%= v %>"
+             <%- typeof autocomplete !== 'undefined' ? `autocomplete="${autocomplete}"` : '' %>
+             <%- describedBy ? `aria-describedby="${describedBy}"` : '' %> <%- err ? 'aria-invalid="true" autofocus' : '' %>
+             <%- typeof attrs !== 'undefined' ? attrs : '' %>>
+      <button type="button" class="btn absolute inset-y-1 right-1 h-auto px-2.5 text-xs text-muted-foreground hover:text-foreground" data-variant="ghost" data-size="xs"
+              data-reveal="<%= name %>" aria-controls="<%= name %>" aria-pressed="false">Show</button>
+    </div>
+  <% } else { %>
+    <input id="<%= name %>" name="<%= name %>" type="<%= t %>" class="h-9 py-0" value="<%= v %>"
+           <%- typeof autocomplete !== 'undefined' ? `autocomplete="${autocomplete}"` : '' %>
+           <%- describedBy ? `aria-describedby="${describedBy}"` : '' %> <%- err ? 'aria-invalid="true" autofocus' : '' %>
+           <%- typeof attrs !== 'undefined' ? attrs : '' %>>
+  <% } %>
+  <% if (err) { %><p id="<%= name %>-error" class="text-xs text-destructive"><%= err %></p><% } %>
+  <% if (h) { %><p id="<%= name %>-hint" class="text-xs"><%= h %></p><% } %>
+</div>

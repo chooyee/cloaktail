@@ -1,0 +1,8 @@
+<%# A labelled value with a copy button. Expects `label` and `value`. %>
+<div class="grid gap-1">
+  <dt class="text-sm text-muted-foreground"><%= label %></dt>
+  <dd class="flex items-start gap-2">
+    <code class="min-w-0 flex-1 break-all rounded bg-muted px-2 py-1 text-xs"><%= value %></code>
+    <button type="button" class="btn" data-variant="ghost" data-size="xs" data-copy="<%= value %>">Copy</button>
+  </dd>
+</div>

@@ -1,0 +1,164 @@
+<%- include('../../partials/header') %>
+<% const action = isNew ? '/apps' : `/apps/${app.id}`; %>
+<a href="<%= isNew ? '/apps' : `/apps/${app.id}` %>" class="text-sm text-muted-foreground hover:underline">← <%= isNew ? 'Applications' : app.name %></a>
+<h1 class="mt-2 text-2xl font-semibold"><%= isNew ? 'Register application' : 'Edit application' %></h1>
+<p class="mt-1 text-muted-foreground">Creates a SAML client for your app in the <code><%= sandboxRealm %></code> sandbox realm.</p>
+
+<div id="app-page" class="mt-6 grid gap-6 lg:grid-cols-[1fr_22rem]">
+  <% if (isNew && quotaReached) { %>
+    <div class="alert lg:col-span-2" data-variant="destructive" role="alert">
+      <section>You have reached the limit of <%= maxApps %> applications. Delete one before registering another.</section>
+    </div>
+  <% } %>
+
+  <form class="card" method="post" action="<%= action %>" hx-post="<%= action %>"
+        hx-target="#app-page" hx-select="#app-page" hx-swap="outerHTML">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <section class="grid gap-6">
+      <%- include('../../fragments/form-status') %>
+
+      <fieldset class="fieldset gap-4">
+        <legend class="text-sm font-semibold">Application</legend>
+        <div class="field">
+          <label for="name">Name</label>
+          <input id="name" name="name" type="text" required maxlength="80" value="<%= values.name %>" placeholder="My Billing App">
+        </div>
+        <div class="field">
+          <label for="clientId">Entity ID (SP issuer)</label>
+          <input id="clientId" name="clientId" type="text" required value="<%= values.clientId %>"
+                 placeholder="https://myapp.example.com/saml/metadata" <%= isNew ? '' : 'disabled' %>>
+          <p><%= isNew ? 'Must match the issuer your app puts in its SAML requests. Becomes the Keycloak client ID.' : 'The entity ID can’t be changed. Register a new application to use a different one.' %></p>
+        </div>
+      </fieldset>
+
+      <fieldset class="fieldset gap-4">
+        <legend class="text-sm font-semibold">Endpoints</legend>
+        <div class="field">
+          <label for="acsUrl">Assertion Consumer Service (ACS) URL</label>
+          <input id="acsUrl" name="acsUrl" type="url" required value="<%= values.acsUrl %>" placeholder="https://myapp.example.com/saml/acs">
+          <p>Where Keycloak posts the SAML response after login.</p>
+        </div>
+        <div class="field">
+          <label for="sloUrl">Single logout URL <span class="text-muted-foreground">(optional)</span></label>
+          <input id="sloUrl" name="sloUrl" type="url" value="<%= values.sloUrl %>" placeholder="https://myapp.example.com/saml/logout">
+        </div>
+        <div class="field">
+          <label for="homeUrl">Home URL <span class="text-muted-foreground">(optional)</span></label>
+          <input id="homeUrl" name="homeUrl" type="url" value="<%= values.homeUrl %>" placeholder="https://myapp.example.com/">
+        </div>
+      </fieldset>
+
+      <fieldset class="fieldset gap-4">
+        <legend class="text-sm font-semibold">Subject and attributes</legend>
+        <div class="field">
+          <label for="nameIdFormat">Name ID format</label>
+          <select id="nameIdFormat" name="nameIdFormat">
+            <% for (const [value, label] of Object.entries(NAME_ID_FORMATS)) { %>
+              <option value="<%= value %>" <%= values.nameIdFormat === value ? 'selected' : '' %>><%= label %></option>
+            <% } %>
+          </select>
+        </div>
+        <div>
+          <p class="mb-3 text-sm font-medium">Send these user attributes</p>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <% for (const [value, label] of Object.entries(USER_ATTRIBUTES)) { %>
+              <div class="field" data-orientation="horizontal">
+                <input type="checkbox" id="attr-<%= value %>" name="attributes" value="<%= value %>" <%= values.attributes.includes(value) ? 'checked' : '' %>>
+                <label for="attr-<%= value %>"><%= label %> <code class="text-xs text-muted-foreground"><%= value %></code></label>
+              </div>
+            <% } %>
+          </div>
+        </div>
+        <div class="field">
+          <label for="attributeNameFormat">Attribute name format</label>
+          <select id="attributeNameFormat" name="attributeNameFormat">
+            <% for (const f of ATTRIBUTE_NAME_FORMATS) { %>
+              <option <%= values.attributeNameFormat === f ? 'selected' : '' %>><%= f %></option>
+            <% } %>
+          </select>
+        </div>
+      </fieldset>
+
+      <fieldset class="fieldset gap-4">
+        <legend class="text-sm font-semibold">Signing and encryption</legend>
+        <div class="field" data-orientation="horizontal">
+          <input type="checkbox" role="switch" id="signDocuments" name="signDocuments" <%= values.signDocuments ? 'checked' : '' %>>
+          <section>
+            <label for="signDocuments">Sign SAML responses</label>
+            <p>Keycloak signs the whole response.</p>
+          </section>
+        </div>
+        <div class="field" data-orientation="horizontal">
+          <input type="checkbox" role="switch" id="signAssertions" name="signAssertions" <%= values.signAssertions ? 'checked' : '' %>>
+          <section>
+            <label for="signAssertions">Sign assertions</label>
+            <p>Keycloak signs the assertion inside the response.</p>
+          </section>
+        </div>
+        <div class="field" data-orientation="horizontal">
+          <input type="checkbox" role="switch" id="clientSignature" name="clientSignature" <%= values.clientSignature ? 'checked' : '' %>>
+          <section>
+            <label for="clientSignature">Require signed requests</label>
+            <p>Keycloak rejects AuthnRequests your app hasn’t signed. The portal’s test login can’t sign for you, so it is unavailable while this is on.</p>
+          </section>
+        </div>
+        <div class="field">
+          <label for="signingCert">Your app’s signing certificate (PEM)</label>
+          <textarea id="signingCert" name="signingCert" rows="4" class="font-mono text-xs"
+                    placeholder="-----BEGIN CERTIFICATE-----"><%= values.signingCert %></textarea>
+          <p>Only needed when “Require signed requests” is on. No certificate yet? <a href="/tools/certificate" target="_blank" class="underline underline-offset-4">Generate one</a>.</p>
+        </div>
+        <div class="field" data-orientation="horizontal">
+          <input type="checkbox" role="switch" id="encryptAssertions" name="encryptAssertions" <%= values.encryptAssertions ? 'checked' : '' %>>
+          <section>
+            <label for="encryptAssertions">Encrypt assertions</label>
+            <p>Keycloak encrypts assertions with your certificate. The portal can’t decrypt them, so the test shows limited detail.</p>
+          </section>
+        </div>
+        <div class="field">
+          <label for="encryptionCert">Your app’s encryption certificate (PEM)</label>
+          <textarea id="encryptionCert" name="encryptionCert" rows="4" class="font-mono text-xs"
+                    placeholder="-----BEGIN CERTIFICATE-----"><%= values.encryptionCert %></textarea>
+        </div>
+      </fieldset>
+    </section>
+    <footer class="flex justify-end gap-2">
+      <a href="<%= isNew ? '/apps' : `/apps/${app.id}` %>" class="btn" data-variant="outline">Cancel</a>
+      <button type="submit" class="btn" <%= isNew && quotaReached ? 'disabled' : '' %>><%= isNew ? 'Register application' : 'Save changes' %></button>
+    </footer>
+  </form>
+
+  <div class="grid gap-6 self-start">
+    <% if (isNew) { %>
+      <form class="card" method="post" action="/apps/import" hx-post="/apps/import"
+            hx-target="#app-page" hx-select="#app-page" hx-swap="outerHTML">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <header>
+          <h2>Import SP metadata</h2>
+          <p>Fill the form from your app’s metadata XML. You can review it before registering.</p>
+        </header>
+        <section class="grid gap-3">
+          <input type="file" accept=".xml,text/xml,application/xml" class="text-sm"
+                 onchange="const f=this.files[0]; if (f) f.text().then((t) => { this.form.metadata.value = t; });">
+          <div class="field">
+            <label for="metadata" class="sr-only">Metadata XML</label>
+            <textarea id="metadata" name="metadata" rows="6" class="font-mono text-xs" placeholder="<EntityDescriptor …>"></textarea>
+          </div>
+        </section>
+        <footer class="flex justify-end">
+          <button type="submit" class="btn" data-variant="secondary">Import</button>
+        </footer>
+      </form>
+    <% } %>
+    <div class="card">
+      <header>
+        <h2>Portal test ACS</h2>
+        <p>The portal also adds this URL to your client’s allowed redirect URIs so “Test connection” can receive the response.</p>
+      </header>
+      <section>
+        <code class="block break-all rounded bg-muted p-2 text-xs"><%= testAcsUrl %></code>
+      </section>
+    </div>
+  </div>
+</div>
+<%- include('../../partials/footer') %>

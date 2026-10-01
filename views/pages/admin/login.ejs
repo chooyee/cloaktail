@@ -1,0 +1,31 @@
+<%- include('../../partials/header') %>
+<div class="mx-auto flex max-w-md flex-col py-6 sm:py-12">
+  <div class="text-center">
+    <div class="mx-auto w-fit scale-125"><%- include('../../partials/logo') %></div>
+    <h1 class="mt-6 text-2xl font-semibold tracking-tight">Administrator sign-in</h1>
+    <p class="mt-2 text-sm text-muted-foreground">
+      For portal administrators. This account is stored in CloakTail, not Keycloak, so it works even when the Keycloak connection doesn’t.
+    </p>
+  </div>
+
+  <form class="card mt-8" method="post" action="/admin/login">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <input type="hidden" name="returnTo" value="<%= returnTo %>">
+    <section class="grid gap-4">
+      <% if (loggedOut) { %>
+        <div class="alert" role="status"><section>You’re signed out of the admin console.</section></div>
+      <% } %>
+      <%- include('../../fragments/form-status', { error, message: null }) %>
+      <%- include('../../fragments/text-field', { name: 'username', label: 'Username', value: values.username, autocomplete: 'username', attrs: 'required autocapitalize="none" spellcheck="false"' }) %>
+      <%- include('../../fragments/text-field', { name: 'password', label: 'Password', type: 'password', autocomplete: 'current-password', attrs: 'required' }) %>
+    </section>
+    <footer>
+      <button type="submit" class="btn w-full">Sign in</button>
+    </footer>
+  </form>
+
+  <p class="mt-6 text-center text-sm text-muted-foreground">
+    Developer? <a href="/login" class="font-medium text-foreground underline underline-offset-4">Sign in with Keycloak</a>
+  </p>
+</div>
+<%- include('../../partials/footer') %>

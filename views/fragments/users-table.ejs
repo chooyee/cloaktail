@@ -1,0 +1,48 @@
+<div id="users-table">
+  <div class="table-container rounded-lg border">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Status</th>
+          <th>App roles</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (users.length === 0) { %>
+          <tr><td colspan="5" class="py-8 text-center text-muted-foreground">No users found.</td></tr>
+        <% } %>
+        <% for (const u of users) { %>
+          <tr>
+            <td><a class="font-medium underline-offset-4 hover:underline" href="/users/<%= u.id %>"><%= u.username %></a></td>
+            <td><%= [u.firstName, u.lastName].filter(Boolean).join(' ') || '—' %></td>
+            <td><%= u.email || '—' %></td>
+            <td>
+              <% if (u.enabled) { %><span class="badge" data-variant="outline">Enabled</span>
+              <% } else { %><span class="badge" data-variant="destructive">Disabled</span><% } %>
+            </td>
+            <td>
+              <div class="flex flex-wrap gap-1">
+                <% for (const r of u.appRoles) { %><span class="badge" data-variant="secondary"><%= r.name %></span><% } %>
+                <% if (u.appRoles.length === 0) { %><span class="text-muted-foreground">—</span><% } %>
+              </div>
+            </td>
+          </tr>
+        <% } %>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="mt-4 flex items-center justify-between text-sm text-muted-foreground">
+    <span><%= total %> user<%= total === 1 ? '' : 's' %> · page <%= page %> of <%= pageCount %></span>
+    <div class="flex gap-2">
+      <% const qs = (p) => `/users?${new URLSearchParams({ ...(search ? { q: search } : {}), page: p })}`; %>
+      <button class="btn" data-variant="outline" data-size="sm" <%= page <= 1 ? 'disabled' : '' %>
+              hx-get="<%= qs(page - 1) %>" hx-target="#users-table" hx-swap="outerHTML" hx-push-url="true">Previous</button>
+      <button class="btn" data-variant="outline" data-size="sm" <%= page >= pageCount ? 'disabled' : '' %>
+              hx-get="<%= qs(page + 1) %>" hx-target="#users-table" hx-swap="outerHTML" hx-push-url="true">Next</button>
+    </div>
+  </div>
+</div>

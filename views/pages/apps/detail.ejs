@@ -1,0 +1,152 @@
+<%- include('../../partials/header') %>
+<a href="/apps" class="text-sm text-muted-foreground hover:underline">← Applications</a>
+<div class="mt-2 flex flex-wrap items-center justify-between gap-4">
+  <div>
+    <div class="flex items-center gap-3">
+      <h1 class="text-2xl font-semibold"><%= app.name %></h1>
+      <% if (!enabled) { %><span class="badge" data-variant="destructive">Disabled in Keycloak</span><% } %>
+    </div>
+    <p class="mt-1 font-mono text-sm text-muted-foreground break-all"><%= app.client_id %></p>
+    <% if (app.owner !== user.username) { %><p class="mt-1 text-sm text-muted-foreground">Owner: <%= app.owner %></p><% } %>
+  </div>
+  <% if (canEdit) { %>
+    <a href="/apps/<%= app.id %>/edit" class="btn" data-variant="outline">Edit settings</a>
+  <% } %>
+</div>
+
+<% if (created) { %>
+  <div class="alert mt-6" role="status">
+    <h2>Application registered</h2>
+    <section>Keycloak created client <code><%= app.client_id %></code> in realm <code><%= idp.realm %></code>. Run a test login below.</section>
+  </div>
+<% } %>
+
+<div class="mt-6 grid gap-6 lg:grid-cols-2">
+  <%# ---------- Test connection ---------- %>
+  <div class="card lg:col-span-2">
+    <header>
+      <h2>Test connection</h2>
+      <p>The portal sends a login request as <code><%= app.client_id %></code>. Sign in with one of your test users, then see exactly what Keycloak returned.</p>
+    </header>
+    <section class="grid gap-4">
+      <% if (values.clientSignature) { %>
+        <div class="alert" role="status"><section>
+          This client requires signed requests, which only your app can produce, so the portal can’t start a test login.
+          <% if (idpInitiatedUrl) { %>Use the IdP-initiated link below to test through your own app.<% } %>
+        </section></div>
+      <% } else if (testUserCount === 0 && app.owner === user.username) { %>
+        <div class="alert" role="status"><section>
+          You have no test users yet. <a class="underline underline-offset-4" href="/test-users">Create one</a> to sign in with during the test.
+        </section></div>
+      <% } %>
+      <form method="post" action="/apps/<%= app.id %>/test">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <button type="submit" class="btn" <%= values.clientSignature ? 'disabled' : '' %>>Run test login</button>
+      </form>
+
+      <% if (runs.length) { %>
+        <div class="table-container rounded-lg border">
+          <table class="table">
+            <thead><tr><th>When</th><th>Result</th><th>Summary</th><th></th></tr></thead>
+            <tbody>
+              <% for (const run of runs) { %>
+                <tr>
+                  <td class="whitespace-nowrap"><%= new Date(run.created_at + 'Z').toLocaleString() %></td>
+                  <td><span class="badge" data-variant="<%= run.ok ? 'outline' : 'destructive' %>"><%= run.ok ? 'Passed' : 'Failed' %></span></td>
+                  <td class="max-w-md truncate"><%= run.summary %></td>
+                  <td class="text-right"><a class="btn" data-variant="ghost" data-size="sm" href="/apps/<%= app.id %>/tests/<%= run.id %>">Details</a></td>
+                </tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </section>
+  </div>
+
+  <%# ---------- IdP details ---------- %>
+  <div class="card">
+    <header>
+      <h2>Keycloak (IdP) details</h2>
+      <p>Configure these in your app’s SAML library.</p>
+    </header>
+    <section>
+      <dl class="grid gap-4">
+        <%- include('../../fragments/copy-row', { label: 'IdP metadata URL', value: idp.metadataUrl }) %>
+        <%- include('../../fragments/copy-row', { label: 'IdP entity ID (issuer)', value: idp.entityId }) %>
+        <%- include('../../fragments/copy-row', { label: 'Single sign-on URL (HTTP-POST and Redirect)', value: idp.ssoUrl }) %>
+        <%- include('../../fragments/copy-row', { label: 'Single logout URL', value: idp.sloUrl }) %>
+        <% if (idpInitiatedUrl) { %>
+          <%- include('../../fragments/copy-row', { label: 'IdP-initiated login (sends the user to your ACS)', value: idpInitiatedUrl }) %>
+        <% } %>
+        <% if (idp.cert) { %>
+          <%- include('../../fragments/copy-row', { label: 'Signing certificate (base64 DER)', value: idp.cert }) %>
+        <% } else { %>
+          <p class="text-sm text-destructive">Could not read the signing certificate from Keycloak. Use the metadata URL instead.</p>
+        <% } %>
+      </dl>
+    </section>
+  </div>
+
+  <%# ---------- SP settings ---------- %>
+  <div class="card">
+    <header>
+      <h2>Your app (SP) settings</h2>
+      <p>What Keycloak expects from your app.</p>
+    </header>
+    <section>
+      <dl class="grid grid-cols-[10rem_1fr] gap-x-4 gap-y-2 text-sm">
+        <dt class="text-muted-foreground">Entity ID</dt><dd class="break-all font-mono text-xs"><%= values.clientId %></dd>
+        <dt class="text-muted-foreground">ACS URL</dt><dd class="break-all font-mono text-xs"><%= values.acsUrl %></dd>
+        <dt class="text-muted-foreground">Logout URL</dt><dd class="break-all font-mono text-xs"><%= values.sloUrl || '—' %></dd>
+        <dt class="text-muted-foreground">Name ID format</dt><dd><%= NAME_ID_FORMATS[values.nameIdFormat] %></dd>
+        <dt class="text-muted-foreground">Attributes</dt>
+        <dd class="flex flex-wrap gap-1">
+          <% for (const a of values.attributes) { %><span class="badge" data-variant="secondary"><%= a %></span><% } %>
+          <% if (!values.attributes.length) { %>—<% } %>
+        </dd>
+        <dt class="text-muted-foreground">Signed</dt>
+        <dd><%= [values.signDocuments && 'response', values.signAssertions && 'assertion'].filter(Boolean).join(' + ') %></dd>
+        <dt class="text-muted-foreground">Signed requests</dt><dd><%= values.clientSignature ? 'Required' : 'Not required' %></dd>
+        <dt class="text-muted-foreground">Encryption</dt><dd><%= values.encryptAssertions ? 'Assertions encrypted' : 'Off' %></dd>
+      </dl>
+    </section>
+  </div>
+
+  <%# ---------- Example config ---------- %>
+  <div class="card lg:col-span-2">
+    <header>
+      <h2>Example: Node.js (@node-saml/passport-saml)</h2>
+      <p>Other SAML libraries take the same values.</p>
+    </header>
+    <section>
+<% const snippet = `new SamlStrategy({
+  entryPoint: '${idp.ssoUrl}',
+  issuer: '${values.clientId}',
+  callbackUrl: '${values.acsUrl}',
+  idpIssuer: '${idp.entityId}',
+  idpCert: '<signing certificate above, or fetch it from ${idp.metadataUrl}>',
+  wantAuthnResponseSigned: ${values.signDocuments},
+  wantAssertionsSigned: ${values.signAssertions},${values.sloUrl ? `\n  logoutUrl: '${idp.sloUrl}',\n  logoutCallbackUrl: '${values.sloUrl}',` : ''}
+}, (profile, done) => done(null, profile), (profile, done) => done(null, profile));`; %>
+      <div class="relative">
+        <pre class="overflow-x-auto rounded-lg bg-muted p-4 text-xs"><code><%= snippet %></code></pre>
+        <button type="button" class="btn absolute right-2 top-2" data-variant="outline" data-size="xs" data-copy="<%= snippet %>">Copy</button>
+      </div>
+    </section>
+  </div>
+
+  <% if (canEdit) { %>
+    <div class="card lg:col-span-2">
+      <header>
+        <h2>Delete application</h2>
+        <p>Removes the SAML client from Keycloak and its test history from the portal.</p>
+      </header>
+      <footer class="flex justify-end">
+        <button class="btn" data-variant="destructive" hx-post="/apps/<%= app.id %>/delete"
+                hx-confirm="Delete <%= app.name %>? Its Keycloak client is removed immediately.">Delete application</button>
+      </footer>
+    </div>
+  <% } %>
+</div>
+<%- include('../../partials/footer') %>

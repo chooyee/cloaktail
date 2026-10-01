@@ -1,0 +1,94 @@
+<%- include('../partials/header') %>
+<div id="test-users">
+  <h1 class="text-2xl font-semibold">Test users</h1>
+  <p class="mt-1 text-muted-foreground">
+    Accounts in the <code><%= realm %></code> sandbox realm to sign in with during “Test connection”.
+    <%= users.length %> of <%= max %> used.
+  </p>
+
+  <div class="mt-6">
+    <%- include('../fragments/form-status') %>
+  </div>
+
+  <div class="mt-4 grid gap-6 lg:grid-cols-[1fr_22rem]">
+    <div class="self-start">
+      <% if (users.length === 0) { %>
+        <div class="empty rounded-lg border border-dashed">
+          <header>
+            <h3>No test users yet</h3>
+            <p>Create one to sign in with when testing your applications.</p>
+          </header>
+        </div>
+      <% } else { %>
+        <div class="table-container rounded-lg border">
+          <table class="table">
+            <thead><tr><th>Username</th><th>Name</th><th>Email</th><th class="text-right">Actions</th></tr></thead>
+            <tbody>
+              <% for (const u of users) { %>
+                <tr>
+                  <td class="font-medium">
+                    <%= u.username %>
+                    <% if (!u.kc) { %><span class="badge ml-1" data-variant="destructive">missing in Keycloak</span><% } %>
+                  </td>
+                  <td><%= u.kc ? [u.kc.firstName, u.kc.lastName].filter(Boolean).join(' ') || '—' : '—' %></td>
+                  <td><%= u.kc?.email || '—' %></td>
+                  <td>
+                    <div class="flex items-center justify-end gap-2">
+                      <% if (u.kc) { %>
+                        <form class="flex gap-2" hx-post="/test-users/<%= u.id %>/password"
+                              hx-target="#test-users" hx-select="#test-users" hx-swap="outerHTML">
+                          <label for="pw-<%= u.id %>" class="sr-only">New password for <%= u.username %></label>
+                          <input id="pw-<%= u.id %>" class="input h-8 w-36" type="password" name="password"
+                                 placeholder="New password" minlength="8" required autocomplete="new-password">
+                          <button type="submit" class="btn" data-variant="outline" data-size="sm">Set</button>
+                        </form>
+                      <% } %>
+                      <button class="btn" data-variant="ghost" data-size="sm" hx-post="/test-users/<%= u.id %>/delete"
+                              hx-target="#test-users" hx-select="#test-users" hx-swap="outerHTML"
+                              hx-confirm="Delete test user <%= u.username %>?">Delete</button>
+                    </div>
+                  </td>
+                </tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </div>
+
+    <form class="card self-start" hx-post="/test-users" hx-target="#test-users" hx-select="#test-users" hx-swap="outerHTML">
+      <header>
+        <h2>New test user</h2>
+        <p>The profile fields become the SAML attributes your app receives.</p>
+      </header>
+      <section class="grid gap-4">
+        <div class="field">
+          <label for="tu-username">Username</label>
+          <input id="tu-username" name="username" type="text" required autocomplete="off" value="<%= values.username || '' %>">
+        </div>
+        <div class="field">
+          <label for="tu-email">Email</label>
+          <input id="tu-email" name="email" type="email" required value="<%= values.email || '' %>">
+        </div>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div class="field">
+            <label for="tu-first">First name</label>
+            <input id="tu-first" name="firstName" type="text" required value="<%= values.firstName || '' %>">
+          </div>
+          <div class="field">
+            <label for="tu-last">Last name</label>
+            <input id="tu-last" name="lastName" type="text" required value="<%= values.lastName || '' %>">
+          </div>
+        </div>
+        <div class="field">
+          <label for="tu-password">Password</label>
+          <input id="tu-password" name="password" type="password" required minlength="8" autocomplete="new-password">
+        </div>
+      </section>
+      <footer class="flex justify-end">
+        <button type="submit" class="btn" <%= users.length >= max ? 'disabled' : '' %>>Create test user</button>
+      </footer>
+    </form>
+  </div>
+</div>
+<%- include('../partials/footer') %>

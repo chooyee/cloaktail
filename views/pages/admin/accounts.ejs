@@ -1,0 +1,58 @@
+<%- include('../../partials/header') %>
+<h1 class="text-2xl font-semibold">Administrators</h1>
+<p class="mt-1 text-muted-foreground">Local accounts for this admin console. They are separate from Keycloak users and portal roles.</p>
+
+<div class="mt-6 grid gap-6 lg:grid-cols-[1fr_22rem]">
+  <div class="card self-start">
+    <section class="overflow-x-auto">
+      <table class="table">
+        <thead>
+          <tr><th>Username</th><th>Status</th><th>Last sign-in</th><th>Created</th><th></th></tr>
+        </thead>
+        <tbody>
+          <% for (const a of accounts) {
+               const locked = a.locked_until && Date.parse(a.locked_until) > Date.now(); %>
+            <tr>
+              <td class="font-medium">
+                <%= a.username %>
+                <% if (a.username === admin.username) { %><span class="badge ml-1" data-variant="outline">you</span><% } %>
+              </td>
+              <td>
+                <% if (locked) { %><span class="badge" data-variant="destructive">Locked</span>
+                <% } else if (a.must_change_password) { %><span class="badge" data-variant="secondary">Must change password</span>
+                <% } else { %><span class="badge" data-variant="outline">Active</span><% } %>
+              </td>
+              <td class="text-muted-foreground"><%= a.last_login_at ? `${a.last_login_at} UTC` : 'Never' %></td>
+              <td class="text-muted-foreground"><%= a.created_at %> UTC<%= a.created_by ? ` by ${a.created_by}` : '' %></td>
+              <td class="text-right">
+                <% if (a.username !== admin.username) { %>
+                  <button class="btn" data-variant="ghost" data-size="sm" hx-post="/admin/accounts/<%= encodeURIComponent(a.username) %>/delete"
+                          hx-confirm="Delete administrator <%= a.username %>? They are signed out at once.">Delete</button>
+                <% } %>
+              </td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  <form id="account-form" class="card self-start" method="post" action="/admin/accounts"
+        hx-post="/admin/accounts" hx-target="main" hx-select="main" hx-swap="outerHTML">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <header>
+      <h2>Add administrator</h2>
+      <p>They must choose their own password when they first sign in.</p>
+    </header>
+    <section class="grid gap-4">
+      <%- include('../../fragments/form-status', { error, message }) %>
+      <%- include('../../fragments/text-field', { name: 'username', label: 'Username', value: values.username, autocomplete: 'off', attrs: 'required autocapitalize="none" spellcheck="false"' }) %>
+      <%- include('../../fragments/text-field', { name: 'password', label: 'Initial password', type: 'password', autocomplete: 'new-password', hint: 'At least 12 characters.', attrs: 'required' }) %>
+      <%- include('../../fragments/text-field', { name: 'confirmPassword', label: 'Confirm password', type: 'password', autocomplete: 'new-password', attrs: 'required' }) %>
+    </section>
+    <footer class="flex justify-end">
+      <button type="submit" class="btn">Add administrator</button>
+    </footer>
+  </form>
+</div>
+<%- include('../../partials/footer') %>
