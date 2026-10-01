@@ -21,6 +21,8 @@ export const config = {
   // Encrypts client secrets stored in Keycloak profiles. Changing it makes stored secrets unreadable.
   settingsKey: process.env.SETTINGS_KEY || sessionSecret,
   secureCookies: baseUrl.startsWith('https://'),
+  // TRUST_PROXY: number of proxy hops (e.g. 1), or an Express value such as "loopback". Unset = no proxy.
+  trustProxy: /^\d+$/.test(process.env.TRUST_PROXY || '') ? Number(process.env.TRUST_PROXY) : process.env.TRUST_PROXY || null,
   adminUsers: (process.env.ADMIN_USERS || '')
     .split(',')
     .map((u) => u.trim().toLowerCase())

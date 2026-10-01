@@ -23,6 +23,9 @@ const app = express();
 app.set('view engine', 'ejs');
 app.set('views', path.join(root, 'views'));
 app.disable('x-powered-by');
+// Behind a TLS-terminating reverse proxy, trust its X-Forwarded-* headers so secure session cookies
+// are sent and req.ip is the client's address.
+if (config.trustProxy !== null) app.set('trust proxy', config.trustProxy);
 app.locals.registrationEnabled = config.registration.enabled;
 app.locals.maxApps = config.sandbox.maxAppsPerDeveloper;
 app.locals.maxTestUsers = config.sandbox.maxTestUsersPerDeveloper;
