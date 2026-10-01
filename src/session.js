@@ -1,9 +1,36 @@
 import session from 'express-session';
 import { config } from './config.js';
+import { getSession, saveSession, deleteSession, listSessions, deleteExpiredSessions } from './db.js';
 
-// In-memory store: fine for a single dev instance. For production use a shared store
-// (Redis, a database) that still implements all() so destroySessions() keeps working.
-export const sessionStore = new session.MemoryStore();
+const MAX_AGE = 8 * 60 * 60 * 1000;
+
+// Sessions live in PostgreSQL, so they survive restarts and are shared by every app instance.
+// all() is implemented because destroySessions() needs it.
+class PgSessionStore extends session.Store {
+  get(sid, cb) {
+    getSession(sid).then((sess) => cb(null, sess), cb);
+  }
+
+  set(sid, sess, cb) {
+    const expires = sess.cookie?.expires ? new Date(sess.cookie.expires) : new Date(Date.now() + MAX_AGE);
+    saveSession(sid, sess, expires).then(() => cb?.(), (err) => cb?.(err));
+  }
+
+  destroy(sid, cb) {
+    deleteSession(sid).then(() => cb?.(), (err) => cb?.(err));
+  }
+
+  all(cb) {
+    listSessions().then((rows) => cb(null, Object.fromEntries(rows.map((r) => [r.sid, r.sess]))), cb);
+  }
+}
+
+export const sessionStore = new PgSessionStore();
+
+// Expired rows are ignored on read; clear them out now and then.
+setInterval(() => {
+  deleteExpiredSessions().catch((err) => console.error('Removing expired sessions failed:', err));
+}, 15 * 60 * 1000).unref();
 
 export const sessionMiddleware = session({
   name: 'sid',
@@ -17,7 +44,7 @@ export const sessionMiddleware = session({
     // the ACS handler starts a fresh session and IdP logout looks sessions up in the store.
     sameSite: 'lax',
     secure: config.secureCookies,
-    maxAge: 8 * 60 * 60 * 1000,
+    maxAge: MAX_AGE,
   },
 });
 

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { config } from './config.js';
 import { getUserPermissions, getUserRoles, getAdminAccount } from './db.js';
 
 export const isHtmx = (req) => req.get('HX-Request') === 'true';
@@ -78,6 +79,20 @@ export function requirePermission(...perms) {
   };
 }
 
+// For the server log: why a form token was rejected. Almost always the session cookie never came back.
+function csrfFailureReason(req, expected) {
+  if (!/(?:^|;\s*)sid=/.test(req.get('Cookie') || '')) {
+    if (config.secureCookies && !req.secure) {
+      return `the browser sent no session cookie. BASE_URL is ${config.baseUrl}, so the cookie is HTTPS-only, but this request `
+        + 'reached the app over HTTP. Behind a reverse proxy that terminates HTTPS, set TRUST_PROXY=1 (and make sure it sends '
+        + 'X-Forwarded-Proto: https); otherwise open the site with the BASE_URL address.';
+    }
+    return 'the browser sent no session cookie (blocked cookies, or the site was opened at an address other than BASE_URL?).';
+  }
+  if (!expected) return 'the session cookie matches no stored session (expired, or signed with a different SESSION_SECRET).';
+  return 'the form token does not match the session (the page was opened in another session; reload it).';
+}
+
 // Synchronizer-token CSRF protection for every state-changing request from our own pages.
 // SAML endpoints are excluded: they are cross-site POSTs from Keycloak protected by XML signatures.
 export function csrf(req, res, next) {
@@ -93,5 +108,6 @@ export function csrf(req, res, next) {
   const ok = expected && sent.length === expected.length &&
     crypto.timingSafeEqual(Buffer.from(sent), Buffer.from(expected));
   if (ok) return next();
+  console.warn(`[csrf] rejected ${req.method} ${req.originalUrl}: ${csrfFailureReason(req, expected)}`);
   sendError(req, res, 403, 'Invalid or expired form token. Reload the page and try again.');
 }

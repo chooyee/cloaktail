@@ -35,7 +35,7 @@ const SEED_ROLES = [
   { name: 'developer', description: 'Self-service SAML applications in the sandbox', system: 0, permissions: ['dashboard.view', 'apps.own'] },
 ];
 
-const pool = new pg.Pool(config.db);
+const pool = new pg.Pool({ ...config.db, admin: undefined });
 pool.on('error', (err) => console.error('PostgreSQL pool error:', err));
 
 // Queries inside transaction() run on its client; everything else uses the pool.
@@ -69,25 +69,41 @@ const NOW = "to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')";
 // Ids come from URLs; anything that isn't a valid INTEGER key simply matches nothing.
 const validId = (id) => Number.isInteger(id) && id > 0 && id <= 2147483647;
 
-// Creates the schema only when something in db/schema.sql is missing, so the app user needs no
-// CREATE privilege once a DBA has run the file (CREATE ... IF NOT EXISTS still checks privileges).
+// Creates whatever in db/schema.sql is missing. It runs nothing when the schema is complete, so the
+// app user needs no CREATE privilege afterwards (CREATE ... IF NOT EXISTS still checks privileges).
+// With dbadminuser/dbadminpassword set, the schema is created with that account and the app user
+// is granted access to the tables; otherwise the app user creates them itself.
 async function ensureSchema() {
   const schemaSql = fs.readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8');
   const names = [...schemaSql.matchAll(/CREATE (?:UNIQUE )?(?:TABLE|INDEX) IF NOT EXISTS (\w+)/g)].map((m) => m[1]);
   const { missing } = await one('SELECT array_agg(n) FILTER (WHERE to_regclass(n) IS NULL) AS missing FROM unnest($1::text[]) n', [names]);
   if (!missing) return;
+
+  const { admin, ...appDb } = config.db;
+  const appUser = (await one('SELECT current_user AS u')).u;
+  const client = admin ? new pg.Client({ ...appDb, ...admin }) : await pool.connect();
   try {
-    await exec(schemaSql);
-    console.log(`Created the database schema (${missing.join(', ')}).`);
+    if (admin) await client.connect();
+    await client.query('BEGIN');
+    await client.query(schemaSql);
+    if (admin && admin.user !== appUser) {
+      const tables = [...schemaSql.matchAll(/CREATE TABLE IF NOT EXISTS (\w+)/g)].map((m) => client.escapeIdentifier(m[1]));
+      await client.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${tables.join(', ')} TO ${client.escapeIdentifier(appUser)}`);
+    }
+    await client.query('COMMIT');
+    console.log(`Created the database schema (${missing.join(', ')})${admin ? ` as "${admin.user}"` : ''}.`);
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     if (err.code !== '42501') throw err;
-    const { database = '<database>', user = '<user>' } = config.db;
+    const user = admin?.user ?? appUser;
+    const database = appDb.database ?? '<database>';
     console.error(`PostgreSQL user "${user}" may not create tables in database "${database}" (missing: ${missing.join(', ')}).\n`
-      + 'Either grant it the right once, as a superuser:\n'
-      + `  \\c ${database}\n  GRANT CREATE ON SCHEMA public TO ${user};\n`
-      + 'or have a DBA create the tables and grant access:\n'
-      + `  psql -d ${database} -f db/schema.sql\n  GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${user};`);
+      + 'Set dbadminuser/dbadminpassword to an account that may (e.g. the database owner), or grant it once as a superuser:\n'
+      + `  \\c ${database}\n  GRANT CREATE ON SCHEMA public TO ${user};`);
     process.exit(1);
+  } finally {
+    if (admin) await client.end().catch(() => {});
+    else client.release();
   }
 }
 
@@ -411,3 +427,24 @@ export async function recordAdminLoginFailure(username, { lockAfter, lockMs }) {
 
 export const deleteAdminAccount = (username) =>
   exec('DELETE FROM admin_accounts WHERE username = $1', [username.toLowerCase()]);
+
+// ---------- browser sessions (session.js) ----------
+
+export async function getSession(sid) {
+  const row = await one('SELECT sess FROM sessions WHERE sid = $1 AND expires_at > now()', [sid]);
+  return row ? JSON.parse(row.sess) : null;
+}
+
+export async function saveSession(sid, sess, expiresAt) {
+  await exec(`
+    INSERT INTO sessions (sid, sess, expires_at) VALUES ($1, $2, $3)
+    ON CONFLICT (sid) DO UPDATE SET sess = excluded.sess, expires_at = excluded.expires_at
+  `, [sid, JSON.stringify(sess), expiresAt]);
+}
+
+export const deleteSession = (sid) => exec('DELETE FROM sessions WHERE sid = $1', [sid]);
+
+export const listSessions = async () =>
+  (await all('SELECT sid, sess FROM sessions WHERE expires_at > now()')).map((r) => ({ sid: r.sid, sess: JSON.parse(r.sess) }));
+
+export const deleteExpiredSessions = () => exec('DELETE FROM sessions WHERE expires_at <= now()');

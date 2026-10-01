@@ -1,5 +1,5 @@
--- CloakTail schema (PostgreSQL). The app runs this on startup when any table is missing.
--- If the app user may not create tables, a DBA runs it once instead and grants the app user access:
+-- CloakTail schema (PostgreSQL). The app creates anything missing here on startup, as dbuser or,
+-- when set, as dbadminuser (which then grants dbuser access). To create it by hand instead:
 --   psql -d <database> -f db/schema.sql
 --   GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO <app user>;
 -- Timestamps are UTC text 'YYYY-MM-DD HH:MM:SS', as the app compares and displays them as strings.
@@ -104,3 +104,11 @@ CREATE TABLE IF NOT EXISTS admin_accounts (
   created_at           TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'),
   last_login_at        TEXT
 );
+-- Browser sessions (the express-session store, see session.js). Shared, so they survive restarts
+-- and work across several app instances.
+CREATE TABLE IF NOT EXISTS sessions (
+  sid        TEXT PRIMARY KEY,
+  sess       TEXT NOT NULL,             -- JSON
+  expires_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_expires_at ON sessions (expires_at);

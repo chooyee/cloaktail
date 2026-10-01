@@ -35,6 +35,10 @@ export const config = {
     database: process.env.database || undefined,
     user: process.env.dbuser || undefined,
     password: process.env.dbpassword || undefined,
+    // Optional account used only at startup to create missing tables (see db/schema.sql).
+    admin: process.env.dbadminuser
+      ? { user: process.env.dbadminuser, password: process.env.dbadminpassword || undefined }
+      : null,
   },
 
   registration: {
