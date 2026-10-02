@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { DOMParser } from '@xmldom/xmldom';
 import { SAML, ValidateInResponseTo } from '@node-saml/passport-saml';
-import { config } from '../config.js';
+import { config, currentProfileId } from '../config.js';
 import { idpCertCallback } from './idpCerts.js';
 
 // "Test connection": the portal plays the developer's SP for one login. It sends an AuthnRequest
@@ -46,7 +46,7 @@ function samlFor(test) {
   return new SAML({
     entryPoint: config.sandbox.samlEndpoint,
     issuer: test.clientId,
-    callbackUrl: config.sandbox.testAcsUrl,
+    callbackUrl: test.acsUrl,
     idpCert: idpCertCallback(config.sandbox.descriptorUrl),
     idpIssuer: config.sandbox.realmUrl,
     audience: test.clientId,
@@ -63,12 +63,14 @@ function samlFor(test) {
 }
 
 // Returns the Keycloak URL to send the developer's browser to.
-export async function startTest({ app, values, startedBy }) {
+export async function startTest({ app, values, startedBy, acsUrl }) {
   prune();
   const relayState = crypto.randomBytes(16).toString('hex');
   const test = {
     appId: app.id,
     clientId: app.client_id,
+    profileId: currentProfileId(),
+    acsUrl,
     signDocuments: values.signDocuments,
     signAssertions: values.signAssertions,
     expectedAttributes: values.attributes,
@@ -83,7 +85,8 @@ export async function startTest({ app, values, startedBy }) {
 // if the RelayState doesn't belong to a pending test.
 export async function finishTest(body) {
   const test = pending.get(body.RelayState);
-  if (!test || test.expiresAt < Date.now()) return null;
+  // A response is only checked by the profile (sandbox realm) whose test it answers.
+  if (!test || test.expiresAt < Date.now() || test.profileId !== currentProfileId()) return null;
   pending.delete(body.RelayState);
 
   let xml = '';
@@ -119,7 +122,7 @@ function buildChecks(test, d, validation) {
     add('Assertion readable', false, 'The assertion is encrypted with your app\'s certificate. The portal can\'t decrypt it; test encrypted responses in your app, or turn encryption off while testing.');
   }
   add('Issuer is the sandbox realm', d.issuer === config.sandbox.realmUrl, d.issuer || 'missing');
-  add('Destination is the test ACS', d.destination === config.sandbox.testAcsUrl, d.destination || 'missing');
+  add('Destination is the test ACS', d.destination === test.acsUrl, d.destination || 'missing');
   if (!d.encrypted) {
     add('Audience is your entity ID', d.audiences.includes(test.clientId), d.audiences.join(', ') || 'missing');
   }

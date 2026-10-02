@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { config } from './config.js';
+import { currentTenant } from './config.js';
 import { getUserPermissions, getUserRoles, getAdminAccount } from './db.js';
 
 export const isHtmx = (req) => req.get('HX-Request') === 'true';
@@ -13,6 +13,7 @@ export function redirect(req, res, url) {
 // Error for the current request: a flash message for htmx, a full error page otherwise.
 export function sendError(req, res, status, message) {
   res.status(status);
+  res.locals.indexable = false;
   if (isHtmx(req)) {
     return res.set({ 'HX-Retarget': '#flash', 'HX-Reswap': 'innerHTML' })
       .render('fragments/flash', { type: 'error', message });
@@ -22,7 +23,10 @@ export function sendError(req, res, status, message) {
 }
 
 // Loads the current user's app roles/permissions on every request, so role changes apply immediately.
+// A sign-in only counts on the domains of the Keycloak profile it came from (domains on one host but
+// different ports share cookies; sessions from before profiles had domains have no profileId).
 export async function userContext(req, res, next) {
+  if (req.user && req.user.profileId !== currentTenant()?.profileId) req.user = null;
   res.locals.currentPath = req.path;
   res.locals.user = req.user || null;
   const [permissions, roles] = req.user
@@ -82,12 +86,7 @@ export function requirePermission(...perms) {
 // For the server log: why a form token was rejected. Almost always the session cookie never came back.
 function csrfFailureReason(req, expected) {
   if (!/(?:^|;\s*)sid=/.test(req.get('Cookie') || '')) {
-    if (config.secureCookies && !req.secure) {
-      return `the browser sent no session cookie. BASE_URL is ${config.baseUrl}, so the cookie is HTTPS-only, but this request `
-        + 'reached the app over HTTP. Behind a reverse proxy that terminates HTTPS, set TRUST_PROXY=1 (and make sure it sends '
-        + 'X-Forwarded-Proto: https); otherwise open the site with the BASE_URL address.';
-    }
-    return 'the browser sent no session cookie (blocked cookies, or the site was opened at an address other than BASE_URL?).';
+    return 'the browser sent no session cookie (blocked cookies, or the form was opened on another domain?).';
   }
   if (!expected) return 'the session cookie matches no stored session (expired, or signed with a different SESSION_SECRET).';
   return 'the form token does not match the session (the page was opened in another session; reload it).';

@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 function required(name) {
   const value = process.env[name];
@@ -6,7 +7,16 @@ function required(name) {
   return value;
 }
 
-const baseUrl = (process.env.BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
+// BASE_URL: the portal's main address. The admin console is always reachable here, even before any
+// Keycloak profile serves this domain; the other domains are set per profile in the admin console.
+const baseUrl = (() => {
+  const raw = (process.env.BASE_URL || 'http://localhost:3000').trim();
+  const url = new URL(raw);
+  if (url.pathname !== '/' || url.search || url.hash || raw.includes(',')) {
+    throw new Error(`BASE_URL must be one origin such as https://example.com, not ${raw}. Other domains are set per Keycloak profile in the admin console.`);
+  }
+  return url.origin;
+})();
 const flag = (name, fallback) => (process.env[name] ?? String(fallback)).toLowerCase() === 'true';
 const int = (name, fallback) => Number.parseInt(process.env[name] ?? '', 10) || fallback;
 const sessionSecret = required('SESSION_SECRET');
@@ -20,7 +30,9 @@ export const config = {
   sessionSecret,
   // Encrypts client secrets stored in Keycloak profiles. Changing it makes stored secrets unreadable.
   settingsKey: process.env.SETTINGS_KEY || sessionSecret,
-  secureCookies: baseUrl.startsWith('https://'),
+  // Domains may be http:// or https://, so cookies are Secure whenever the request came over HTTPS.
+  // Behind a TLS-terminating proxy that needs TRUST_PROXY (which domain lookup needs anyway).
+  secureCookies: 'auto',
   // TRUST_PROXY: number of proxy hops (e.g. 1), or an Express value such as "loopback". Unset = no proxy.
   trustProxy: /^\d+$/.test(process.env.TRUST_PROXY || '') ? Number(process.env.TRUST_PROXY) : process.env.TRUST_PROXY || null,
   adminUsers: (process.env.ADMIN_USERS || '')
@@ -47,27 +59,8 @@ export const config = {
     verifyEmail: flag('REGISTRATION_VERIFY_EMAIL', false),
   },
 
-  // Keycloak connection: not in .env. It comes from the active Keycloak profile in the database
-  // (src/keycloakProfiles.js), which calls applyKeycloakSettings(). These objects are updated in
-  // place, so always read them at call time rather than copying them at import.
-  keycloak: {},
-
-  // Realm where developers' SAML clients and test users live, isolated from the portal realm.
-  sandbox: {
-    // The portal's own ACS used by "Test connection"; added to every developer client.
-    testAcsUrl: `${baseUrl}/saml/test/acs`,
-    maxAppsPerDeveloper: int('MAX_APPS_PER_DEVELOPER', 5),
-    maxTestUsersPerDeveloper: int('MAX_TEST_USERS_PER_DEVELOPER', 5),
-  },
-
-  saml: {
-    // Key pair files from before signing keys were stored in the database; only read once, to
-    // move them into it (spKeys.js). Generate or import keys in the admin console instead.
-    spKeyFile: process.env.SAML_SP_KEY_FILE || 'certs/sp-key.pem',
-    spCertFile: process.env.SAML_SP_CERT_FILE || 'certs/sp-cert.pem',
-    callbackUrl: `${baseUrl}/saml/acs`,
-    logoutCallbackUrl: `${baseUrl}/saml/logout/callback`,
-  },
+  // keycloak, sandbox and saml (defined below) depend on the Keycloak profile serving the current
+  // request, so always read them at call time rather than copying them at import.
 };
 
 // Everything the app derives from a Keycloak profile's settings. With no profile (fresh install)
@@ -108,11 +101,66 @@ export function deriveKeycloakConfig(s) {
   };
 }
 
-export function applyKeycloakSettings(settings) {
-  const derived = deriveKeycloakConfig(settings);
-  Object.assign(config.keycloak, derived.keycloak);
-  Object.assign(config.sandbox, derived.sandbox);
-  Object.assign(config.saml, derived.saml);
+// ---------- the Keycloak profile serving the current request ----------
+
+// Each request runs inside tenantContext.run(tenant) (app.js), where tenant is the Keycloak profile
+// mapped to the request's domain (keycloakProfiles.js):
+//   { profileId, profileName, siteUrl, domains, keycloak, sandbox, saml }
+// siteUrl is the request's own domain; domains are all of the profile's domains.
+export const tenantContext = new AsyncLocalStorage();
+export const currentTenant = () => tenantContext.getStore() ?? null;
+
+// Data in the database belongs to one profile. Failing loudly outside a profile's context means a
+// query can never fall back to reading or writing another profile's rows.
+export function currentProfileId() {
+  const tenant = currentTenant();
+  if (!tenant) throw new Error('No Keycloak profile serves this request.');
+  return tenant.profileId;
 }
 
-applyKeycloakSettings(null);
+export const testAcsUrlFor = (siteUrl) => `${siteUrl}/saml/test/acs`;
+
+// The portal's own SAML endpoints on one domain.
+export const samlUrlsFor = (siteUrl) => ({
+  callbackUrl: `${siteUrl}/saml/acs`,
+  logoutCallbackUrl: `${siteUrl}/saml/logout/callback`,
+});
+
+const UNCONFIGURED = deriveKeycloakConfig(null);
+const sandboxLimits = {
+  maxAppsPerDeveloper: int('MAX_APPS_PER_DEVELOPER', 5),
+  maxTestUsersPerDeveloper: int('MAX_TEST_USERS_PER_DEVELOPER', 5),
+};
+const samlKeyFiles = {
+  // Key pair files from before signing keys were stored in the database; only read once, to
+  // move them into it (spKeys.js). Generate or import keys in the admin console instead.
+  spKeyFile: process.env.SAML_SP_KEY_FILE || 'certs/sp-key.pem',
+  spCertFile: process.env.SAML_SP_CERT_FILE || 'certs/sp-cert.pem',
+};
+
+Object.defineProperties(config, {
+  // Portal realm: where developers sign in.
+  keycloak: { enumerable: true, get: () => currentTenant()?.keycloak ?? UNCONFIGURED.keycloak },
+  // Realm where developers' SAML clients and test users live, isolated from the portal realm.
+  sandbox: {
+    enumerable: true,
+    get() {
+      const t = currentTenant();
+      return {
+        ...sandboxLimits,
+        ...(t?.sandbox ?? UNCONFIGURED.sandbox),
+        // The portal's own ACS used by "Test connection" on this domain. Every developer client
+        // accepts the test ACS of all the profile's domains.
+        testAcsUrl: t ? testAcsUrlFor(t.siteUrl) : '',
+        testAcsUrls: t ? t.domains.map(testAcsUrlFor) : [],
+      };
+    },
+  },
+  saml: {
+    enumerable: true,
+    get() {
+      const t = currentTenant();
+      return { ...samlKeyFiles, ...(t?.saml ?? UNCONFIGURED.saml), ...(t ? samlUrlsFor(t.siteUrl) : {}) };
+    },
+  },
+});

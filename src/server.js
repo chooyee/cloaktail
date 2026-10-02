@@ -2,13 +2,16 @@ import app from './app.js';
 import { config } from './config.js';
 import { bootstrapAdmin } from './adminSetup.js';
 import { getSpKeysView } from './spKeys.js';
+import { listTenants } from './keycloakProfiles.js';
 
 app.listen(config.port, async () => {
   console.log(`App listening on ${config.baseUrl}`);
-  if (!config.keycloak.configured) {
-    console.warn(`No active Keycloak profile: sign-in is unavailable until an administrator activates one at ${config.baseUrl}/admin/keycloak.`);
-  } else if (!config.keycloak.adminClientSecret) {
-    console.warn('The active Keycloak profile has no portal service account secret: sign-up and user pages will fail.');
+  const tenants = listTenants();
+  if (!tenants.length) {
+    console.warn(`No Keycloak profile serves any domain: the portal is unavailable until an administrator assigns one at ${config.baseUrl}/admin/keycloak.`);
+  }
+  for (const t of tenants) {
+    console.log(`  ${t.siteUrl} -> Keycloak profile "${t.profileName}"${t.keycloak.adminClientSecret ? '' : ' (no portal service account secret: sign-up and user pages will fail)'}`);
   }
   const { active } = await getSpKeysView();
   if (!active) {

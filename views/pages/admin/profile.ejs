@@ -7,7 +7,7 @@
 <a href="/admin/keycloak" class="text-sm text-muted-foreground hover:underline">← Keycloak profiles</a>
 <div class="mt-2 flex flex-wrap items-center gap-3">
   <h1 class="text-2xl font-semibold"><%= isNew ? 'New Keycloak profile' : profile.name %></h1>
-  <% if (!isNew && profile.active) { %><span class="badge">Active</span><% } %>
+  <% if (!isNew && profile.domains.length) { %><span class="badge">Serving <%= profile.domains.length %> domain<%= profile.domains.length === 1 ? '' : 's' %></span><% } %>
 </div>
 
 <div class="mt-6 grid gap-6 lg:grid-cols-[1fr_22rem]">
@@ -28,6 +28,25 @@
               attrs: 'required maxlength="60"', hint: 'For example Production, Staging or Local.', invalid: fieldError('name') }) %>
         <%- include('../../fragments/text-field', { name: 'description', label: 'Description', value: values.description, autocomplete: 'off',
               attrs: 'maxlength="300"', hint: 'Optional.', invalid: fieldError('description') }) %>
+      </div>
+
+      <div class="grid gap-4">
+        <div>
+          <h2 class="font-semibold">Domains</h2>
+          <p class="text-sm text-muted-foreground">Requests to these addresses use this profile, and see only its users, roles and sandbox data. A domain belongs to one profile.</p>
+        </div>
+        <% const domainsErr = fieldError('domains'); %>
+        <div class="field gap-1.5" <%- domainsErr ? 'data-invalid="true"' : '' %>>
+          <label for="domains">Domains</label>
+          <textarea id="domains" name="domains" rows="3" class="font-mono text-xs" spellcheck="false" placeholder="<%= baseUrl %>"
+                    aria-describedby="domains-hint<%= domainsErr ? ' domains-error' : '' %>" <%- domainsErr ? 'aria-invalid="true"' : '' %>><%= values.domains || '' %></textarea>
+          <% if (domainsErr) { %><p id="domains-error" class="text-xs text-destructive"><%= domainsErr %></p><% } %>
+          <p id="domains-hint" class="text-xs">
+            One per line, with the scheme, like <code>https://portal.example.com</code>. Leave empty to keep the profile unused.
+            Each domain's <code>/*</code> must be a valid redirect URI of the portal SAML client in this profile's realm.
+            The admin console stays at <code><%= baseUrl %>/admin</code> whatever you enter.
+          </p>
+        </div>
       </div>
 
       <% for (const section of sections) { %>
@@ -79,28 +98,33 @@
       <div class="card">
         <header><h2>After you create it</h2></header>
         <section class="grid gap-2 text-sm text-muted-foreground">
-          <p>Run the connection checks, then activate the profile. Creating a profile doesn’t change what CloakTail uses.</p>
+          <p>The profile starts serving its domains at once. To check it first, leave the domains empty, run the connection checks, then add them.</p>
+          <p>It starts with the default roles. Users, roles and sandbox data aren’t shared with other profiles.</p>
           <p>Client secrets are stored encrypted and are never shown again.</p>
         </section>
       </div>
     <% } else { %>
       <div class="card">
         <header>
-          <h2><%= profile.active ? 'Active profile' : 'Not active' %></h2>
-          <p><%= profile.active ? 'CloakTail runs on this profile. Saving changes applies them at once.' : 'Saving changes doesn’t affect CloakTail until you activate it.' %></p>
+          <h2><%= profile.domains.length ? 'In use' : 'Not in use' %></h2>
+          <p><%= profile.domains.length ? 'Saving changes applies them to its domains at once.' : 'No domain uses this profile. Add domains to put it in use.' %></p>
         </header>
-        <% if (!profile.active) { %>
-          <footer class="flex justify-end">
-            <button class="btn" hx-post="/admin/keycloak/profiles/<%= profile.id %>/activate"
-                    hx-confirm="Switch CloakTail to profile <%= profile.name %>? New sign-ins and Keycloak calls use it at once. Applications and test users registered in another sandbox realm won't be found.">Activate</button>
-          </footer>
+        <% if (profile.domains.length) { %>
+          <section>
+            <ul class="grid gap-1">
+              <% for (const d of profile.domains) { %><li><a href="<%= d %>/" class="font-mono text-xs hover:underline" target="_blank" rel="noopener"><%= d %></a></li><% } %>
+            </ul>
+          </section>
         <% } %>
+        <section class="text-xs text-muted-foreground">
+          <%= data.users %> user<%= data.users === 1 ? '' : 's' %>, <%= data.apps %> application<%= data.apps === 1 ? '' : 's' %>, <%= data.test_users %> test user<%= data.test_users === 1 ? '' : 's' %>.
+        </section>
       </div>
 
       <div class="card">
         <header>
           <h2>Test connection</h2>
-          <p>Checks the saved profile: both realms, the signing certificate and both service accounts. Safe to run before activating.</p>
+          <p>Checks the saved profile: both realms, the signing certificate and both service accounts. Safe to run before adding domains.</p>
         </header>
         <section>
           <div id="test-result" aria-live="polite"><p class="text-sm text-muted-foreground">Save your changes first.</p></div>
@@ -134,11 +158,11 @@
         </header>
         <footer class="flex flex-wrap justify-end gap-2">
           <button class="btn" data-variant="outline" hx-post="/admin/keycloak/profiles/<%= profile.id %>/duplicate">Duplicate</button>
-          <% if (profile.active) { %>
-            <button class="btn" data-variant="destructive" disabled title="Activate another profile first">Delete</button>
+          <% if (profile.domains.length) { %>
+            <button class="btn" data-variant="destructive" disabled title="Remove its domains first">Delete</button>
           <% } else { %>
             <button class="btn" data-variant="destructive" hx-post="/admin/keycloak/profiles/<%= profile.id %>/delete"
-                    hx-confirm="Delete profile <%= profile.name %>? This can't be undone; export it first if you may need it.">Delete</button>
+                    hx-confirm="Delete profile <%= profile.name %>? CloakTail also forgets its <%= data.users %> users and their roles, and its records of <%= data.apps %> applications and <%= data.test_users %> test users (Keycloak keeps them). This can't be undone; export the profile first if you may need it.">Delete</button>
           <% } %>
         </footer>
       </div>

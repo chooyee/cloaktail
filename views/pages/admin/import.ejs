@@ -9,7 +9,7 @@
 <a href="/admin/keycloak" class="text-sm text-muted-foreground hover:underline">← Keycloak profiles</a>
 <h1 class="mt-2 text-2xl font-semibold">Import Keycloak profiles</h1>
 <p class="mt-1 max-w-3xl text-muted-foreground">
-  Load a JSON file exported from CloakTail. Importing never changes which profile is active.
+  Load a JSON file exported from CloakTail. Imported profiles serve no domains until you add them; overwriting a profile keeps its domains.
 </p>
 
 <form class="card mt-6 max-w-3xl" method="post" action="/admin/keycloak/import">

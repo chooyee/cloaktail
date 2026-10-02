@@ -45,10 +45,10 @@ Put your own Keycloak username in `ADMIN_USERS` so you get the `admin` portal ro
 On first start there is no administrator and no Keycloak connection:
 
 1. Open `/admin`. It leads to the setup page, which asks for the **setup token** printed in the server log (`docker logs <container>` in Docker). Or set `ADMIN_BOOTSTRAP_USERNAME` and `ADMIN_BOOTSTRAP_PASSWORD` (see below).
-2. In **Keycloak profiles**, create a profile (or import one), run the checks, and activate it.
+2. In **Keycloak profiles**, create a profile (or import one), run the checks, and give it its domains (for example `BASE_URL`).
 3. In **Signing certificate**, generate the portal's SAML signing certificate and import it into the portal SAML client in Keycloak.
 
-Until both a profile and a signing certificate exist, Keycloak sign-in shows "not set up yet".
+Until a profile serves the domain, every page except `/admin` answers 421; until a signing certificate exists, Keycloak sign-in shows "not set up yet".
 
 ## Admin console
 
@@ -56,11 +56,14 @@ Until both a profile and a signing certificate exist, Keycloak sign-in shows "no
 
 - **Keycloak profiles** (`/admin/keycloak`). The Keycloak connection is stored only in the database (table `keycloak_profiles`), never in `.env`.
   - A profile holds the Keycloak URL, both realms, the SAML client ID, the pinned IdP certificate, and both service accounts' client IDs and secrets. Keep one per environment, e.g. *Local*, *Staging* and *Production*.
-  - **Activate** switches CloakTail to a profile at once, without a restart: the SAML strategy is rebuilt and Admin API tokens are re-requested. Editing the active profile applies the same way. The active profile can't be deleted.
-  - **Run checks** tests any profile, active or not: both realms, the signing certificate, and both service accounts with their permissions. Test a profile before you switch to it.
-  - **Duplicate** copies a profile, including its secrets, as a starting point for another environment.
+  - **Domains:** each profile serves the domains listed on its page (e.g. `https://portal.example.com`), so several Keycloaks can be served side by side. A request uses the profile mapped to its scheme and host; any other host gets `421 Misdirected Request`, except that `/admin` always answers on `BASE_URL`. Changes apply at once, without a restart: the SAML strategies are rebuilt.
+  - **Separate data:** users, roles and role assignments, applications and test users belong to one profile, and are only visible on its domains. A Keycloak sign-in is only valid on the domains of the profile it came from. Each new profile starts with the default roles.
+  - **Portal SAML client:** for every domain, add `<domain>/*` to *Valid redirect URIs* and *Valid post logout redirect URIs*, and leave *Master SAML Processing URL* empty (when set, Keycloak posts every response to that one URL).
+  - **Run checks** tests any profile, in use or not: both realms, the signing certificate, and both service accounts with their permissions. Test a profile before you give it domains.
+  - A profile that serves domains can't be deleted. Deleting one also deletes its users, roles and application and test user records from CloakTail; Keycloak keeps its realms.
+  - **Duplicate** copies a profile, including its secrets but not its domains, as a starting point for another environment.
   - Client secrets are encrypted at rest (AES-256-GCM, key from `SETTINGS_KEY` or else `SESSION_SECRET`) and are never sent back to the browser.
-  - Switching to a different sandbox realm doesn't move applications or test users: CloakTail won't find the ones registered in the old realm.
+  - **Upgrading** from a single active profile: the active profile serves `BASE_URL` and keeps every existing user, role, application and test user.
 - **Signing certificate** (`/admin/signing`). CloakTail signs its SAML login and logout requests with its own key pair, so Keycloak can keep *Client signature required* on.
   - **Generate** creates an RSA key pair (2048, 3072 or 4096 bit) and a self-signed certificate (1 to 10 years). You can also **import** an existing PEM pair; it must be RSA, at least 2048 bits, with an unencrypted key that matches the certificate.
   - The key pair is stored in the database (table `sp_keys`), with the private key encrypted like the profile secrets. The private key is never shown or downloadable. The certificate can be copied or downloaded, and is also published in `/saml/metadata`.
@@ -69,7 +72,7 @@ Until both a profile and a signing certificate exist, Keycloak sign-in shows "no
   - **Upgrading:** an existing `certs/sp-key.pem` + `certs/sp-cert.pem` pair (from the old `npm run gen:sp-cert`) is moved into the database once, on the first start. After that the files are not read.
 - **Export and import** profiles as JSON, to back them up or copy them between CloakTail instances.
   - Export one profile from its page, or all of them from the list. Client secrets are left out unless you tick *Include client secrets*; they are then in plain text, so store the file safely.
-  - Import reads the file in the browser and validates every profile first. Nothing is imported if any profile is invalid. Importing never changes which profile is active.
+  - Import reads the file in the browser and validates every profile first. Nothing is imported if any profile is invalid. Imported profiles serve no domains until you add them; overwriting a profile keeps its domains. Exports never contain domains.
   - For a name that already exists, choose: **keep both** (imported as "Name (2)"), **overwrite** (secrets missing from the file are kept), or **skip**.
   - File format:
     ```json
@@ -90,7 +93,7 @@ Until both a profile and a signing certificate exist, Keycloak sign-in shows "no
     }
     ```
     `secrets` is present only when exported with secrets.
-- **Upgrading from `.env` settings:** on the first start without any profile, the old `KEYCLOAK_*`, `SAML_ISSUER`, `SAML_IDP_CERT` and `SANDBOX_*` values (from `.env` or the earlier admin settings) become the active profile "Default". After that, `.env` is not read for them, so remove those lines.
+- **Upgrading from `.env` settings:** on the first start without any profile, the old `KEYCLOAK_*`, `SAML_ISSUER`, `SAML_IDP_CERT` and `SANDBOX_*` values (from `.env` or the earlier admin settings) become the profile "Default", serving `BASE_URL`. After that, `.env` is not read for them, so remove those lines.
 - **First administrator**, as in Keycloak. While no administrator exists, every `/admin` page leads to `/admin/setup`. Create the first one in either of these ways:
   - **Setup page.** It needs the one-time setup token printed in the server log at startup. The token changes on every restart and stops working once an administrator exists. It stops whoever first reaches the URL from taking over the console. A "localhost only" rule like Keycloak's doesn't hold behind Docker port mapping or a reverse proxy.
   - **Environment variables** `ADMIN_BOOTSTRAP_USERNAME` and `ADMIN_BOOTSTRAP_PASSWORD`, for unattended deploys (like Keycloak's `KC_BOOTSTRAP_ADMIN_*`). They are used only when no administrator exists, and the password must be changed at first sign-in. You can remove them afterwards.
@@ -130,6 +133,8 @@ Still in `.env`: `BASE_URL`, `SESSION_SECRET` / `SETTINGS_KEY`, sign-up options 
 | IDP-Initiated SSO URL name | `samlclient` (optional) |
 | IDP Initiated SSO Relay State | `/` (optional) |
 | Master SAML Processing URL | `http://localhost:3000/saml/acs` |
+
+**Several domains** on one profile: add each domain's `/*` to *Valid redirect URIs* and *Valid post logout redirect URIs*, and leave *Master SAML Processing URL* empty. When it is set, Keycloak always posts the SAML response to that one domain, wherever the user signed in.
 
 After saving, open the client:
 
@@ -188,7 +193,7 @@ For each application, the portal creates a Keycloak SAML client with these setti
 
 - **Client ID:** the developer's entity ID. Entity IDs are first-come-first-served; Keycloak rejects duplicates.
 - **ACS and logout URLs:** from the form. Wildcards are rejected.
-- **Valid redirect URIs:** the ACS URL, the logout URL and the portal's test ACS (`BASE_URL/saml/test/acs`).
+- **Valid redirect URIs:** the ACS URL, the logout URL and the portal's test ACS (`<domain>/saml/test/acs` for each domain of the profile). A client created before a domain was added gets that domain's test ACS the first time it is tested from that domain.
 - **Name ID format:** the developer's choice, with *force Name ID format* turned on.
 - **Signing:** response and/or assertion signed with RSA-SHA256. At least one of the two is required.
 - **Optional hardening:** signed AuthnRequests (with the developer's certificate) and encrypted assertions.
@@ -227,4 +232,5 @@ Sign-up is limited to 5 attempts per IP address per 15 minutes and has a hidden 
 ## Notes
 
 - **In-memory state:** sessions, pending tests and the sign-up limiter live in memory, so restarting clears them. They are also not shared across instances. For production, use a shared store.
-- **HTTPS in production:** set `BASE_URL` to `https://…` so cookies are marked `Secure`.
+- **HTTPS and proxies:** cookies are `Secure` on requests that arrived over HTTPS. Behind a reverse proxy, set `TRUST_PROXY` and forward `X-Forwarded-Proto` and `X-Forwarded-Host`; otherwise the app sees the internal address, finds no profile for it and answers 421.
+- **Several instances:** domain and profile changes apply at once on the instance where they were made; restart the others.

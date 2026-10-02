@@ -1,38 +1,23 @@
-<%- include('../partials/header') %>
 <%
   const primary = user ? { href: '/apps/new', label: 'Create a SAML client' }
                        : registrationEnabled ? { href: '/register', label: 'Create developer account' }
                        : { href: '/login', label: 'Sign in' };
-  const quickstart = [
-    { title: 'Create your account', time: '1 min', text: 'Register as a developer, then sign in with Keycloak.', href: user ? null : '/register', link: 'Sign up' },
-    { title: 'Add a test user', time: '1 min', text: `A made-up identity in the ${sandboxRealm} sandbox to sign in with.`, href: '/test-users', link: 'Test users' },
-    { title: 'Register your SAML client', time: '2 min', text: 'Enter your entity ID and ACS URL, or import your SP metadata.', href: '/apps/new', link: 'New application' },
-    { title: 'Test end to end', time: '1 min', text: 'Run a test login and inspect every check, attribute and signature.', href: '/apps', link: 'Applications' },
-  ];
+  // Copy lives in src/content.js, shared with /llms.txt and the JSON-LD.
+  const ctx = { sandboxRealm, maxApps, maxTestUsers };
+  const quickstart = content.quickstart(ctx);
+  const features = content.features(ctx);
+  const problems = content.problems;
+  const structuredData = content.structuredData(ctx, canonicalUrl);
   const journeys = [
     { tag: 'Integrate', title: 'I’m connecting a new app', text: 'Register a SAML client, copy the IdP metadata into your library, and verify the login.', href: '#quickstart', cta: 'Follow the quickstart' },
     { tag: 'Debug', title: 'I’m debugging a SAML response', text: 'Run a test login to see the status, audience, signatures, attributes and raw XML Keycloak sends.', href: '#test-login', cta: 'See how testing works' },
     { tag: 'Tool', title: 'I need a certificate', text: 'Generate a key pair and self-signed PEM certificate for signed requests or encrypted assertions.', href: user ? '/tools/certificate' : '/register', cta: 'Open the generator' },
   ];
-  const features = [
-    { tag: 'Self-service', title: 'SAML clients on demand', text: 'Create, edit and delete your own Keycloak SAML clients. Name ID format, attributes, signing and encryption are all set from a form.' },
-    { tag: 'Import', title: 'SP metadata import', text: 'Paste or upload your app’s metadata XML. Keycloak converts it and the portal pre-fills the form for you to review.' },
-    { tag: 'Sandbox', title: 'Isolated realm', text: `Everything lives in ${sandboxRealm}, away from production identities. Break things freely: nothing reaches real users.` },
-    { tag: 'Test', title: 'Test login with evidence', text: 'Pass/fail checks, the Name ID, session index, attributes and the raw response, with the last 10 runs kept per app.' },
-    { tag: 'Identities', title: 'Test users', text: 'Create sandbox users with the profile your app expects, and see exactly which attributes it will receive.' },
-    { tag: 'Reference', title: 'Copy-ready configuration', text: 'Metadata URL, entity ID, SSO and SLO endpoints, the signing certificate and a sample config, one click each.' },
-  ];
-  const problems = [
-    { q: '“Invalid requester” on the Keycloak page', a: 'The client requires signed requests, or the entity ID your app sends doesn’t match the one you registered. The portal can’t sign for your app, so test signed requests from your app with the certificate you uploaded.' },
-    { q: '“Invalid redirect uri”', a: 'Your app sent an Assertion Consumer Service URL that isn’t registered. Correct the ACS URL in the application settings, including the scheme, host, port and path.' },
-    { q: 'Audience check failed', a: 'Your app validates against a different entity ID. It must match the application’s entity ID exactly, character for character.' },
-    { q: 'Signature check failed in my app', a: 'Your app has the wrong IdP certificate. Configure it from the IdP metadata URL so it always uses the realm’s current signing key.' },
-    { q: 'Expected attributes are missing', a: 'The test user’s profile is incomplete, or the attribute isn’t selected in the application settings. Fill in the user’s email and name, then test again.' },
-  ];
   const check = '<svg class="size-4 shrink-0 text-emerald-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M16.7 5.3a1 1 0 0 1 0 1.4l-8 8a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.4L8 12.6l7.3-7.3a1 1 0 0 1 1.4 0Z" clip-rule="evenodd"/></svg>';
   const arrow = '<svg class="size-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M3 10a.75.75 0 0 1 .75-.75h10.6l-3.9-3.7a.75.75 0 1 1 1.04-1.08l5.25 5a.75.75 0 0 1 0 1.08l-5.25 5a.75.75 0 1 1-1.04-1.08l3.9-3.72H3.75A.75.75 0 0 1 3 10Z" clip-rule="evenodd"/></svg>';
   const chevron = '<svg class="size-4 text-muted-foreground" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.2 7.2a.75.75 0 0 1 1.06 0L10 10.94l3.74-3.74a.75.75 0 1 1 1.06 1.06l-4.27 4.27a.75.75 0 0 1-1.06 0L5.2 8.26a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd"/></svg>';
 %>
+<%- include('../partials/header', { structuredData }) %>
 
 <%# ================= Hero ================= %>
 <section class="border-b bg-[radial-gradient(ellipse_at_top,var(--color-muted),transparent_60%)]">
@@ -123,7 +108,7 @@
 <%# ================= Fact strip ================= %>
 <section class="border-b">
   <ul class="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-8 gap-y-2 px-4 py-5 text-sm text-muted-foreground">
-    <% for (const fact of ['SAML 2.0', 'Keycloak', 'HTTP-POST & Redirect bindings', 'RSA-SHA256 signatures', 'Metadata import', 'Isolated sandbox realm']) { %>
+    <% for (const fact of content.facts) { %>
       <li class="flex items-center gap-2"><span class="size-1 rounded-full bg-muted-foreground/60" aria-hidden="true"></span><%= fact %></li>
     <% } %>
   </ul>
@@ -201,15 +186,10 @@
     <div class="max-w-2xl">
       <p class="text-sm font-medium text-muted-foreground">How testing works</p>
       <h2 class="mt-2 text-3xl font-semibold tracking-tight">CloakTail plays your app for one login</h2>
-      <p class="mt-3 text-muted-foreground">It sends a real AuthnRequest with your entity ID, so Keycloak treats it exactly like your app, then shows you what came back.</p>
+      <p class="mt-3 text-muted-foreground"><%= content.testIntro %></p>
     </div>
     <ol class="mt-12 grid gap-4 md:grid-cols-4">
-      <% [
-           { who: 'CloakTail', what: 'Sends an AuthnRequest as your entity ID' },
-           { who: `Keycloak · ${sandboxRealm}`, what: 'Shows its sign-in page for your client' },
-           { who: 'You', what: 'Sign in as one of your test users' },
-           { who: 'CloakTail', what: 'Validates the signed response and shows every check' },
-         ].forEach((step, i, all) => { %>
+      <% content.testSteps(ctx).forEach((step, i, all) => { %>
         <li class="relative rounded-xl border p-5">
           <p class="font-mono text-xs text-muted-foreground"><%= String(i + 1).padStart(2, '0') %> · <%= step.who %></p>
           <p class="mt-2 text-sm font-medium"><%= step.what %></p>
@@ -219,10 +199,7 @@
         </li>
       <% }) %>
     </ol>
-    <p class="mt-6 text-sm text-muted-foreground">
-      Clients that require signed requests are tested from your own app, since only your app holds its private key.
-      Encrypted assertions can be checked but not read by CloakTail.
-    </p>
+    <p class="mt-6 text-sm text-muted-foreground"><%= content.testLimits %></p>
   </div>
 </section>
 
@@ -262,11 +239,39 @@
         <% problems.forEach((p, i) => { %>
           <details class="<%= i ? 'border-t' : '' %>" <%= i === 0 ? 'open' : '' %>>
             <summary class="px-5 py-4 text-sm font-medium"><%= p.q %> <%- chevron %></summary>
-            <p class="px-5 pb-4 text-sm text-muted-foreground"><%= p.a %></p>
+            <div class="px-5 pb-4 text-sm">
+              <p class="text-muted-foreground"><%= p.a %></p>
+              <a href="/troubleshooting/<%= p.slug %>" class="mt-2 inline-flex items-center gap-1 font-medium hover:underline">Causes and fixes <%- arrow %></a>
+            </div>
           </details>
         <% }) %>
       </div>
+      <a href="/troubleshooting" class="mt-4 inline-flex items-center gap-1 text-sm font-medium hover:underline">All troubleshooting guides <%- arrow %></a>
     </div>
+  </div>
+</section>
+
+<%# ================= Comparison ================= %>
+<section id="compare" class="scroll-mt-16 border-t">
+  <div class="mx-auto max-w-6xl px-4 py-20">
+    <div class="max-w-2xl">
+      <p class="text-sm font-medium text-muted-foreground">Compare</p>
+      <h2 class="mt-2 text-3xl font-semibold tracking-tight">Ways to test a Keycloak SAML integration</h2>
+      <p class="mt-3 text-muted-foreground">CloakTail isn’t always the right tool. Here’s when each option fits.</p>
+    </div>
+    <div class="mt-12 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <% for (const alt of content.alternatives) { const ours = alt.name === 'CloakTail'; %>
+        <div class="flex flex-col rounded-xl border p-6 <%= ours ? 'border-foreground/40 bg-muted/40' : '' %>">
+          <h3 class="font-semibold"><%= alt.name %></h3>
+          <p class="text-xs text-muted-foreground"><%= alt.examples %></p>
+          <dl class="mt-4 grid gap-3 text-sm">
+            <div><dt class="font-medium">Best for</dt><dd class="mt-1 text-muted-foreground"><%= alt.bestFor %></dd></div>
+            <div><dt class="font-medium">Trade-off</dt><dd class="mt-1 text-muted-foreground"><%= alt.tradeoff %></dd></div>
+          </dl>
+        </div>
+      <% } %>
+    </div>
+    <p class="mt-6 text-xs text-muted-foreground">Last reviewed <time datetime="<%= content.updated %>"><%= content.updatedLabel %></time></p>
   </div>
 </section>
 

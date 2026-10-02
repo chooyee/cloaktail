@@ -14,7 +14,7 @@ export class KeycloakError extends Error {
 // Client-credentials grant; returns the token response ({ access_token, expires_in, ... }).
 export async function requestAdminToken({ configured, realmUrl, adminClientId, adminClientSecret }, secretLabel) {
   if (!configured) {
-    throw new KeycloakError('Keycloak is not configured yet. An administrator must activate a Keycloak profile in the admin console.', 503);
+    throw new KeycloakError('Keycloak is not configured for this domain. An administrator must assign it a Keycloak profile in the admin console.', 503);
   }
   if (!adminClientSecret) {
     throw new KeycloakError(`The ${secretLabel} is not set in the Keycloak profile; this feature is unavailable.`, 503);
@@ -34,19 +34,21 @@ export async function requestAdminToken({ configured, realmUrl, adminClientId, a
   return res.json();
 }
 
-// getSettings returns the realm's current settings (config.keycloak or config.sandbox), read on
-// every call because the active Keycloak profile can change at runtime.
+// getSettings returns the realm's settings (config.keycloak or config.sandbox), read on every call
+// because they belong to the Keycloak profile serving the current request.
 export function createAdminClient(getSettings, secretLabel) {
-  let cachedToken = null; // { value, expiresAt, for }
+  const tokens = new Map(); // realm + credentials -> { value, expiresAt }
 
   async function getToken() {
     const settings = getSettings();
     // A token is only reused for the realm and credentials it was issued for.
     const issuedFor = `${settings.realmUrl}\n${settings.adminClientId}\n${settings.adminClientSecret}`;
-    if (cachedToken?.for === issuedFor && cachedToken.expiresAt > Date.now() + 10_000) return cachedToken.value;
+    const cached = tokens.get(issuedFor);
+    if (cached && cached.expiresAt > Date.now() + 10_000) return cached.value;
     const body = await requestAdminToken(settings, secretLabel);
-    cachedToken = { value: body.access_token, expiresAt: Date.now() + body.expires_in * 1000, for: issuedFor };
-    return cachedToken.value;
+    for (const [key, t] of tokens) if (t.expiresAt <= Date.now()) tokens.delete(key);
+    tokens.set(issuedFor, { value: body.access_token, expiresAt: Date.now() + body.expires_in * 1000 });
+    return body.access_token;
   }
 
   async function request(method, path, { query, body, rawBody, contentType } = {}) {
@@ -62,7 +64,7 @@ export function createAdminClient(getSettings, secretLabel) {
       },
       body: rawBody ?? (body ? JSON.stringify(body) : undefined),
     });
-    if (res.status === 401) cachedToken = null;
+    if (res.status === 401) tokens.clear();
     if (!res.ok) {
       let message = `Keycloak request failed (${res.status})`;
       try {

@@ -9,7 +9,7 @@ import { hashPassword, verifyPassword, passwordProblem, DUMMY_HASH } from '../li
 import { checkKeycloakConnection } from '../lib/keycloakCheck.js';
 import {
   PROFILE_SECTIONS, PROFILE_FIELDS, listProfiles, getProfile, createProfile, updateProfile, duplicateProfile,
-  deleteProfile, activateProfile, profileInputFromForm, exportProfiles, importProfiles,
+  deleteProfile, countProfileData, profileInputFromForm, exportProfiles, importProfiles,
 } from '../keycloakProfiles.js';
 import {
   KEY_SIZES, VALIDITY_YEARS, getSpKeysView, generateSpKey, importSpKey, activatePendingSpKey, discardPendingSpKey,
@@ -173,25 +173,32 @@ adminRouter.get('/', (req, res) => res.redirect('/admin/keycloak'));
 
 // ---------- Keycloak profiles ----------
 
-const APPLIED_NOTE = 'New sign-ins and Keycloak calls use it now. People already signed in keep their session until they sign out.';
+const APPLIED_NOTE = 'Its domains use the changes for new sign-ins and Keycloak calls now. People already signed in keep their session until they sign out.';
 
 adminRouter.get('/keycloak', async (req, res) => {
   const [profiles, spKeys] = await Promise.all([listProfiles(), getSpKeysView()]);
-  const active = profiles.find((p) => p.active);
-  let message = null;
-  if ('activated' in req.query && active) message = `"${active.name}" is now the active profile. ${APPLIED_NOTE}`;
-  if ('deleted' in req.query) message = 'Profile deleted.';
-  res.render('pages/admin/profiles', { title: 'Keycloak profiles', profiles, message, hasSigningKey: Boolean(spKeys.active) });
+  res.render('pages/admin/profiles', {
+    title: 'Keycloak profiles',
+    profiles,
+    message: 'deleted' in req.query ? 'Profile deleted.' : null,
+    hasSigningKey: Boolean(spKeys.active),
+    baseUrl: config.baseUrl,
+  });
 });
 
 // Form values for a profile page. Secrets are never sent back to the browser, only whether they are set.
-function renderProfile(res, { status = 200, profile = null, values, errors = {}, error = null, message = null }) {
+async function renderProfile(res, { status = 200, profile = null, values, errors = {}, error = null, message = null }) {
   res.status(status).render('pages/admin/profile', {
+    baseUrl: config.baseUrl,
+    // Shown in the delete confirmation: what deleting removes from the database.
+    data: profile ? await countProfileData(profile.id) : null,
     title: profile ? `Keycloak profile: ${profile.name}` : 'New Keycloak profile',
     sections: PROFILE_SECTIONS,
     fields: PROFILE_FIELDS,
     profile,
-    values: values ?? (profile ? { name: profile.name, description: profile.description, ...profile.settings } : {}),
+    values: values ?? (profile
+      ? { name: profile.name, description: profile.description, domains: profile.domains.join('\n'), ...profile.settings }
+      : { domains: '' }),
     secretsSet: profile ? Object.fromEntries(Object.entries(profile.secrets).map(([k, v]) => [k, Boolean(v)])) : {},
     errors,
     error,
@@ -202,6 +209,7 @@ function renderProfile(res, { status = 200, profile = null, values, errors = {},
 const formValues = (body) => ({
   name: body.name ?? '',
   description: body.description ?? '',
+  domains: body.domains ?? '',
   ...Object.fromEntries(PROFILE_FIELDS.filter((f) => !f.secret).map((f) => [f.key, body[f.key] ?? ''])),
 });
 
@@ -224,10 +232,11 @@ adminRouter.post('/keycloak/profiles', async (req, res) => {
 adminRouter.get('/keycloak/profiles/:id', async (req, res) => {
   const profile = await loadProfile(req, res);
   if (!profile) return;
-  const message = 'created' in req.query ? 'Profile created. Run the checks, then activate it when you’re ready.'
+  const message = 'created' in req.query
+    ? (profile.domains.length ? `Profile created and serving ${profile.domains.join(', ')}.` : 'Profile created. Run the checks, then add its domains when you’re ready.')
     : 'duplicated' in req.query ? 'This is a copy, including the client secrets. Rename it and change what differs.'
       : null;
-  renderProfile(res, { profile, message });
+  await renderProfile(res, { profile, message });
 });
 
 adminRouter.post('/keycloak/profiles/:id', async (req, res) => {
@@ -237,17 +246,10 @@ adminRouter.post('/keycloak/profiles/:id', async (req, res) => {
   if (Object.keys(errors).length) {
     return renderProfile(res, { status: 422, profile, values: formValues(req.body), errors, error: 'Fix the highlighted fields. Nothing was saved.' });
   }
-  renderProfile(res, {
+  await renderProfile(res, {
     profile: await getProfile(profile.id),
-    message: profile.active ? `Saved. This is the active profile: ${APPLIED_NOTE}` : 'Saved.',
+    message: profile.domains.length ? `Saved. ${APPLIED_NOTE}` : 'Saved.',
   });
-});
-
-adminRouter.post('/keycloak/profiles/:id/activate', async (req, res) => {
-  const profile = await loadProfile(req, res);
-  if (!profile) return;
-  await activateProfile(profile.id, req.admin.username);
-  redirect(req, res, '/admin/keycloak?activated');
 });
 
 adminRouter.post('/keycloak/profiles/:id/test', async (req, res) => {

@@ -128,8 +128,8 @@ function mapperFor(attribute, nameFormat) {
 
 function toClientRep(values, owner) {
   // Valid redirect URIs gate which ACS/logout URLs Keycloak will post to. The portal's test ACS
-  // is always included so "Test connection" works.
-  const redirectUris = [...new Set([values.acsUrl, values.sloUrl, config.sandbox.testAcsUrl].filter(Boolean))];
+  // is always included, on every domain, so "Test connection" works.
+  const redirectUris = [...new Set([values.acsUrl, values.sloUrl, ...config.sandbox.testAcsUrls].filter(Boolean))];
   return {
     name: values.name,
     description: `Developer portal application owned by ${owner}`,

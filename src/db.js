@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import fs from 'node:fs';
 import pg from 'pg';
-import { config } from './config.js';
+import { config, currentProfileId } from './config.js';
 
 // Permissions are defined in code because route guards check them by key.
 // Roles (and which permissions they grant) are data, managed from the UI.
@@ -69,35 +69,25 @@ const NOW = "to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')";
 // Ids come from URLs; anything that isn't a valid INTEGER key simply matches nothing.
 const validId = (id) => Number.isInteger(id) && id > 0 && id <= 2147483647;
 
-// Creates whatever in db/schema.sql is missing. It runs nothing when the schema is complete, so the
-// app user needs no CREATE privilege afterwards (CREATE ... IF NOT EXISTS still checks privileges).
-// With dbadminuser/dbadminpassword set, the schema is created with that account and the app user
-// is granted access to the tables; otherwise the app user creates them itself.
-async function ensureSchema() {
-  const schemaSql = fs.readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8');
-  const names = [...schemaSql.matchAll(/CREATE (?:UNIQUE )?(?:TABLE|INDEX) IF NOT EXISTS (\w+)/g)].map((m) => m[1]);
-  const { missing } = await one('SELECT array_agg(n) FILTER (WHERE to_regclass(n) IS NULL) AS missing FROM unnest($1::text[]) n', [names]);
-  if (!missing) return;
-
+// Runs fn(client) in a transaction on a connection allowed to change the schema: dbadminuser when set
+// (then tables it creates are granted to the app user), otherwise the app user.
+async function withSchemaClient(what, fn) {
   const { admin, ...appDb } = config.db;
   const appUser = (await one('SELECT current_user AS u')).u;
   const client = admin ? new pg.Client({ ...appDb, ...admin }) : await pool.connect();
   try {
     if (admin) await client.connect();
     await client.query('BEGIN');
-    await client.query(schemaSql);
-    if (admin && admin.user !== appUser) {
-      const tables = [...schemaSql.matchAll(/CREATE TABLE IF NOT EXISTS (\w+)/g)].map((m) => client.escapeIdentifier(m[1]));
-      await client.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${tables.join(', ')} TO ${client.escapeIdentifier(appUser)}`);
-    }
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('cloaktail.schema'))");
+    const result = await fn(client, { grantTo: admin && admin.user !== appUser ? appUser : null });
     await client.query('COMMIT');
-    console.log(`Created the database schema (${missing.join(', ')})${admin ? ` as "${admin.user}"` : ''}.`);
+    return result;
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     if (err.code !== '42501') throw err;
     const user = admin?.user ?? appUser;
     const database = appDb.database ?? '<database>';
-    console.error(`PostgreSQL user "${user}" may not create tables in database "${database}" (missing: ${missing.join(', ')}).\n`
+    console.error(`PostgreSQL user "${user}" may not change the schema of database "${database}" (${what}).\n`
       + 'Set dbadminuser/dbadminpassword to an account that may (e.g. the database owner), or grant it once as a superuser:\n'
       + `  \\c ${database}\n  GRANT CREATE ON SCHEMA public TO ${user};`);
     process.exit(1);
@@ -107,8 +97,75 @@ async function ensureSchema() {
   }
 }
 
-await ensureSchema();
+// Creates whatever in db/schema.sql is missing. It runs nothing when the schema is complete, so the
+// app user needs no CREATE privilege afterwards (CREATE ... IF NOT EXISTS still checks privileges).
+async function ensureSchema() {
+  const schemaSql = fs.readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8');
+  const names = [...schemaSql.matchAll(/CREATE (?:UNIQUE )?(?:TABLE|INDEX) IF NOT EXISTS (\w+)/g)].map((m) => m[1]);
+  const { missing } = await one('SELECT array_agg(n) FILTER (WHERE to_regclass(n) IS NULL) AS missing FROM unnest($1::text[]) n', [names]);
+  if (!missing) return;
+  await withSchemaClient(`missing: ${missing.join(', ')}`, async (client, { grantTo }) => {
+    await client.query(schemaSql);
+    if (grantTo) {
+      const tables = [...schemaSql.matchAll(/CREATE TABLE IF NOT EXISTS (\w+)/g)].map((m) => client.escapeIdentifier(m[1]));
+      await client.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${tables.join(', ')} TO ${client.escapeIdentifier(grantTo)}`);
+    }
+  });
+  console.log(`Created the database schema (${missing.join(', ')}).`);
+}
 
+// Before each Keycloak profile had its own data, users, roles and sandbox records were shared and
+// the app ran on one active profile. This gives every existing row to that profile, once.
+async function migrateToPerProfileData() {
+  const done = await one("SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'profile_id'");
+  if (done) return;
+  await withSchemaClient('adding profile_id columns', async (client) => {
+    const q = async (sql) => (await client.query(sql)).rows;
+    const [active] = await q(`SELECT p.id FROM settings s JOIN keycloak_profiles p ON p.id::text = s.value
+      WHERE s.key = 'active_keycloak_profile'`);
+    const profileId = active ? Number(active.id) : null;
+    if (profileId === null) {
+      const [{ n }] = await q('SELECT (SELECT COUNT(*) FROM users) + (SELECT COUNT(*) FROM apps) + (SELECT COUNT(*) FROM test_users) AS n');
+      if (Number(n) > 0) {
+        throw new Error('Upgrading to per-profile data needs an active Keycloak profile to give the existing users and '
+          + 'applications to. Start the previous CloakTail version, activate a profile, then upgrade again.');
+      }
+    }
+    // Without an active profile there is nothing to keep (roles are seeded again for every profile).
+    const assign = (table) => (profileId === null ? `DELETE FROM ${table}` : `UPDATE ${table} SET profile_id = ${profileId}`);
+    for (const sql of [
+      'ALTER TABLE user_roles DROP CONSTRAINT IF EXISTS user_roles_username_fkey',
+      'ALTER TABLE user_roles DROP CONSTRAINT IF EXISTS user_roles_pkey',
+      'ALTER TABLE users DROP CONSTRAINT IF EXISTS users_pkey',
+      'ALTER TABLE roles DROP CONSTRAINT IF EXISTS roles_name_key',
+      'ALTER TABLE apps DROP CONSTRAINT IF EXISTS apps_kc_id_key',
+      'ALTER TABLE apps DROP CONSTRAINT IF EXISTS apps_client_id_key',
+      'ALTER TABLE test_users DROP CONSTRAINT IF EXISTS test_users_kc_id_key',
+      'ALTER TABLE test_users DROP CONSTRAINT IF EXISTS test_users_username_key',
+      ...['user_roles', 'users', 'roles', 'apps', 'test_users'].flatMap((t) => [
+        `ALTER TABLE ${t} ADD COLUMN profile_id INTEGER`,
+        assign(t),
+        `ALTER TABLE ${t} ALTER COLUMN profile_id SET NOT NULL`,
+      ]),
+      ...['users', 'roles', 'apps', 'test_users'].map((t) =>
+        `ALTER TABLE ${t} ADD FOREIGN KEY (profile_id) REFERENCES keycloak_profiles(id) ON DELETE CASCADE`),
+      'ALTER TABLE users ADD PRIMARY KEY (profile_id, username)',
+      'ALTER TABLE roles ADD UNIQUE (profile_id, name)',
+      'ALTER TABLE user_roles ADD PRIMARY KEY (profile_id, username, role_id)',
+      'ALTER TABLE user_roles ADD FOREIGN KEY (profile_id, username) REFERENCES users(profile_id, username) ON DELETE CASCADE',
+      'ALTER TABLE apps ADD UNIQUE (profile_id, kc_id)',
+      'ALTER TABLE apps ADD UNIQUE (profile_id, client_id)',
+      'ALTER TABLE test_users ADD UNIQUE (profile_id, kc_id)',
+      'ALTER TABLE test_users ADD UNIQUE (profile_id, username)',
+    ]) await q(sql);
+  });
+  console.log('Users, roles and sandbox records now belong to a Keycloak profile; the existing ones went to the active profile.');
+}
+
+await ensureSchema();
+await migrateToPerProfileData();
+
+// Permissions are global (defined in code); roles are per profile (seedRoles).
 await transaction(async () => {
   for (const [key, description] of Object.entries(PERMISSIONS)) {
     await exec(
@@ -117,54 +174,59 @@ await transaction(async () => {
     );
   }
   await exec('DELETE FROM permissions WHERE key <> ALL($1)', [Object.keys(PERMISSIONS)]);
+});
 
+// Creates the default roles a profile lacks, and keeps its admin role holding every permission,
+// including ones added later. Run at startup for every profile and when a profile is created.
+export const seedRoles = (profileId) => transaction(async () => {
   for (const role of SEED_ROLES) {
-    if (await one('SELECT id FROM roles WHERE name = $1', [role.name])) continue;
+    if (await one('SELECT id FROM roles WHERE profile_id = $1 AND name = $2', [profileId, role.name])) continue;
     const { id } = await one(
-      'INSERT INTO roles (name, description, is_system) VALUES ($1, $2, $3) RETURNING id',
-      [role.name, role.description, role.system],
+      'INSERT INTO roles (profile_id, name, description, is_system) VALUES ($1, $2, $3, $4) RETURNING id',
+      [profileId, role.name, role.description, role.system],
     );
     for (const perm of role.permissions) {
       await exec('INSERT INTO role_permissions (role_id, permission_key) VALUES ($1, $2)', [id, perm]);
     }
   }
-
-  // The admin role always holds every permission, including ones added later.
-  const admin = await one("SELECT id FROM roles WHERE name = 'admin'");
+  const admin = await one("SELECT id FROM roles WHERE profile_id = $1 AND name = 'admin'", [profileId]);
   for (const perm of Object.keys(PERMISSIONS)) {
     await exec('INSERT INTO role_permissions (role_id, permission_key) VALUES ($1, $2) ON CONFLICT DO NOTHING', [admin.id, perm]);
   }
 });
+
+// Every query below is scoped to the Keycloak profile serving the current request (currentProfileId
+// throws outside one), so one profile's users and data are never visible on another's domains.
 
 // ---------- users ----------
 
 export async function upsertUser({ username, keycloakId, email, firstName, lastName }, { login = false } = {}) {
   username = username.toLowerCase();
   await exec(`
-    INSERT INTO users (username, keycloak_id, email, first_name, last_name, last_login_at)
-    VALUES ($1, $2, $3, $4, $5, CASE WHEN $6 THEN ${NOW} END)
-    ON CONFLICT (username) DO UPDATE SET
+    INSERT INTO users (profile_id, username, keycloak_id, email, first_name, last_name, last_login_at)
+    VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $7 THEN ${NOW} END)
+    ON CONFLICT (profile_id, username) DO UPDATE SET
       keycloak_id   = COALESCE(excluded.keycloak_id, users.keycloak_id),
       email         = COALESCE(excluded.email, users.email),
       first_name    = COALESCE(excluded.first_name, users.first_name),
       last_name     = COALESCE(excluded.last_name, users.last_name),
       last_login_at = COALESCE(excluded.last_login_at, users.last_login_at)
-  `, [username, keycloakId ?? null, email ?? null, firstName ?? null, lastName ?? null, Boolean(login)]);
+  `, [currentProfileId(), username, keycloakId ?? null, email ?? null, firstName ?? null, lastName ?? null, Boolean(login)]);
   return username;
 }
 
 export const getLocalUser = (username) =>
-  one('SELECT * FROM users WHERE username = $1', [username.toLowerCase()]);
+  one('SELECT * FROM users WHERE profile_id = $1 AND username = $2', [currentProfileId(), username.toLowerCase()]);
 
 export async function deleteLocalUser(username) {
-  await exec('DELETE FROM users WHERE username = $1', [username.toLowerCase()]);
+  await exec('DELETE FROM users WHERE profile_id = $1 AND username = $2', [currentProfileId(), username.toLowerCase()]);
 }
 
 export const getUserRoles = (username) => all(`
   SELECT r.id, r.name FROM roles r
   JOIN user_roles ur ON ur.role_id = r.id
-  WHERE ur.username = $1 ORDER BY r.name
-`, [username.toLowerCase()]);
+  WHERE ur.profile_id = $1 AND ur.username = $2 ORDER BY r.name
+`, [currentProfileId(), username.toLowerCase()]);
 
 export async function getRolesForUsernames(usernames) {
   const map = new Map(usernames.map((u) => [u.toLowerCase(), []]));
@@ -172,9 +234,9 @@ export async function getRolesForUsernames(usernames) {
   const rows = await all(`
     SELECT ur.username, r.id, r.name FROM user_roles ur
     JOIN roles r ON r.id = ur.role_id
-    WHERE ur.username = ANY($1)
+    WHERE ur.profile_id = $1 AND ur.username = ANY($2)
     ORDER BY r.name
-  `, [usernames.map((u) => u.toLowerCase())]);
+  `, [currentProfileId(), usernames.map((u) => u.toLowerCase())]);
   for (const row of rows) map.get(row.username)?.push({ id: row.id, name: row.name });
   return map;
 }
@@ -183,24 +245,29 @@ export async function getUserPermissions(username) {
   const rows = await all(`
     SELECT DISTINCT rp.permission_key AS key FROM role_permissions rp
     JOIN user_roles ur ON ur.role_id = rp.role_id
-    WHERE ur.username = $1
-  `, [username.toLowerCase()]);
+    WHERE ur.profile_id = $1 AND ur.username = $2
+  `, [currentProfileId(), username.toLowerCase()]);
   return new Set(rows.map((r) => r.key));
 }
 
+// Role ids are global, so assignments only accept roles of the same profile.
 export const setUserRoles = (username, roleIds) => transaction(async () => {
+  const profileId = currentProfileId();
   username = await upsertUser({ username });
-  await exec('DELETE FROM user_roles WHERE username = $1', [username]);
+  await exec('DELETE FROM user_roles WHERE profile_id = $1 AND username = $2', [profileId, username]);
   for (const id of roleIds.filter(validId)) {
-    await exec('INSERT INTO user_roles (username, role_id) SELECT $1, id FROM roles WHERE id = $2', [username, id]);
+    await exec(
+      'INSERT INTO user_roles (profile_id, username, role_id) SELECT $1, $2, id FROM roles WHERE id = $3 AND profile_id = $1',
+      [profileId, username, id],
+    );
   }
 });
 
 export async function addUserRoleByName(username, roleName) {
-  await exec(
-    'INSERT INTO user_roles (username, role_id) SELECT $1, id FROM roles WHERE name = $2 ON CONFLICT DO NOTHING',
-    [username.toLowerCase(), roleName],
-  );
+  await exec(`
+    INSERT INTO user_roles (profile_id, username, role_id)
+    SELECT $1, $2, id FROM roles WHERE profile_id = $1 AND name = $3 ON CONFLICT DO NOTHING
+  `, [currentProfileId(), username.toLowerCase(), roleName]);
 }
 
 // ---------- roles ----------
@@ -209,12 +276,12 @@ export const listRoles = () => all(`
   SELECT r.*,
     (SELECT COUNT(*)::int FROM role_permissions rp WHERE rp.role_id = r.id) AS permission_count,
     (SELECT COUNT(*)::int FROM user_roles ur WHERE ur.role_id = r.id) AS user_count
-  FROM roles r ORDER BY r.is_system DESC, r.name
-`);
+  FROM roles r WHERE r.profile_id = $1 ORDER BY r.is_system DESC, r.name
+`, [currentProfileId()]);
 
 export async function getRole(id) {
   if (!validId(id)) return null;
-  const role = await one('SELECT * FROM roles WHERE id = $1', [id]);
+  const role = await one('SELECT * FROM roles WHERE id = $1 AND profile_id = $2', [id, currentProfileId()]);
   if (!role) return null;
   const [perms, users] = await Promise.all([
     all('SELECT permission_key FROM role_permissions WHERE role_id = $1', [id]),
@@ -228,11 +295,15 @@ export async function getRole(id) {
 export const listPermissions = () => all('SELECT * FROM permissions ORDER BY key');
 
 export async function createRole(name, description) {
-  return (await one('INSERT INTO roles (name, description) VALUES ($1, $2) RETURNING id', [name, description])).id;
+  return (await one(
+    'INSERT INTO roles (profile_id, name, description) VALUES ($1, $2, $3) RETURNING id',
+    [currentProfileId(), name, description],
+  )).id;
 }
 
 export const updateRole = (id, description, permissionKeys) => transaction(async () => {
-  await exec('UPDATE roles SET description = $1 WHERE id = $2', [description, id]);
+  const { rowCount } = await exec('UPDATE roles SET description = $1 WHERE id = $2 AND profile_id = $3', [description, id, currentProfileId()]);
+  if (!rowCount) return;
   await exec('DELETE FROM role_permissions WHERE role_id = $1', [id]);
   for (const key of permissionKeys) {
     await exec('INSERT INTO role_permissions (role_id, permission_key) SELECT $1::int, key FROM permissions WHERE key = $2', [id, key]);
@@ -240,7 +311,7 @@ export const updateRole = (id, description, permissionKeys) => transaction(async
 });
 
 export async function deleteRole(id) {
-  await exec('DELETE FROM roles WHERE id = $1 AND is_system = 0', [id]);
+  await exec('DELETE FROM roles WHERE id = $1 AND profile_id = $2 AND is_system = 0', [id, currentProfileId()]);
 }
 
 // ---------- developer apps ----------
@@ -250,43 +321,46 @@ export function listApps({ owner } = {}) {
     SELECT a.*,
       (SELECT ok FROM test_runs t WHERE t.app_id = a.id ORDER BY t.id DESC LIMIT 1) AS last_test_ok,
       (SELECT created_at FROM test_runs t WHERE t.app_id = a.id ORDER BY t.id DESC LIMIT 1) AS last_test_at
-    FROM apps a`;
+    FROM apps a WHERE a.profile_id = $1`;
   return owner
-    ? all(`${base} WHERE a.owner = $1 ORDER BY a.created_at DESC`, [owner])
-    : all(`${base} ORDER BY a.owner, a.created_at DESC`);
+    ? all(`${base} AND a.owner = $2 ORDER BY a.created_at DESC`, [currentProfileId(), owner])
+    : all(`${base} ORDER BY a.owner, a.created_at DESC`, [currentProfileId()]);
 }
 
-export const countApps = async (owner) => (await one('SELECT COUNT(*)::int AS n FROM apps WHERE owner = $1', [owner])).n;
-export const getApp = async (id) => (validId(id) ? one('SELECT * FROM apps WHERE id = $1', [id]) : null);
+export const countApps = async (owner) =>
+  (await one('SELECT COUNT(*)::int AS n FROM apps WHERE profile_id = $1 AND owner = $2', [currentProfileId(), owner])).n;
+export const getApp = async (id) =>
+  (validId(id) ? one('SELECT * FROM apps WHERE id = $1 AND profile_id = $2', [id, currentProfileId()]) : null);
 
 export async function insertApp({ owner, kcId, clientId, name }) {
   return (await one(
-    'INSERT INTO apps (owner, kc_id, client_id, name) VALUES ($1, $2, $3, $4) RETURNING id',
-    [owner, kcId, clientId, name],
+    'INSERT INTO apps (profile_id, owner, kc_id, client_id, name) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+    [currentProfileId(), owner, kcId, clientId, name],
   )).id;
 }
 
-export const renameApp = (id, name) => exec('UPDATE apps SET name = $1 WHERE id = $2', [name, id]);
-export const deleteApp = (id) => exec('DELETE FROM apps WHERE id = $1', [id]);
+export const renameApp = (id, name) => exec('UPDATE apps SET name = $1 WHERE id = $2 AND profile_id = $3', [name, id, currentProfileId()]);
+export const deleteApp = (id) => exec('DELETE FROM apps WHERE id = $1 AND profile_id = $2', [id, currentProfileId()]);
 
 // ---------- sandbox test users ----------
 
 export const listTestUsers = (owner) =>
-  all('SELECT * FROM test_users WHERE owner = $1 ORDER BY username', [owner]);
+  all('SELECT * FROM test_users WHERE profile_id = $1 AND owner = $2 ORDER BY username', [currentProfileId(), owner]);
 export const countTestUsers = async (owner) =>
-  (await one('SELECT COUNT(*)::int AS n FROM test_users WHERE owner = $1', [owner])).n;
-export const getTestUser = async (id) => (validId(id) ? one('SELECT * FROM test_users WHERE id = $1', [id]) : null);
+  (await one('SELECT COUNT(*)::int AS n FROM test_users WHERE profile_id = $1 AND owner = $2', [currentProfileId(), owner])).n;
+export const getTestUser = async (id) =>
+  (validId(id) ? one('SELECT * FROM test_users WHERE id = $1 AND profile_id = $2', [id, currentProfileId()]) : null);
 
 export async function insertTestUser({ owner, kcId, username }) {
   return (await one(
-    'INSERT INTO test_users (owner, kc_id, username) VALUES ($1, $2, $3) RETURNING id',
-    [owner, kcId, username],
+    'INSERT INTO test_users (profile_id, owner, kc_id, username) VALUES ($1, $2, $3, $4) RETURNING id',
+    [currentProfileId(), owner, kcId, username],
   )).id;
 }
 
-export const deleteTestUser = (id) => exec('DELETE FROM test_users WHERE id = $1', [id]);
+export const deleteTestUser = (id) => exec('DELETE FROM test_users WHERE id = $1 AND profile_id = $2', [id, currentProfileId()]);
 
-// ---------- test runs ----------
+// ---------- test runs (reached through an app, which is already scoped to the profile) ----------
 
 const KEEP_TEST_RUNS = 10;
 
@@ -345,6 +419,20 @@ export async function updateProfileRow(id, { name, description, settings, secret
 }
 
 export const deleteProfileRow = (id) => exec('DELETE FROM keycloak_profiles WHERE id = $1', [id]);
+
+// Domains served by each profile.
+export const listDomainRows = () => all('SELECT origin, profile_id FROM profile_domains ORDER BY origin');
+export const setProfileDomains = (profileId, origins) => transaction(async () => {
+  await exec('DELETE FROM profile_domains WHERE profile_id = $1', [profileId]);
+  for (const origin of origins) await exec('INSERT INTO profile_domains (origin, profile_id) VALUES ($1, $2)', [origin, profileId]);
+});
+
+// What deleting a profile would remove from the database (Keycloak keeps its own copies).
+export const countProfileData = async (profileId) => one(`
+  SELECT (SELECT COUNT(*)::int FROM users WHERE profile_id = $1) AS users,
+    (SELECT COUNT(*)::int FROM apps WHERE profile_id = $1) AS apps,
+    (SELECT COUNT(*)::int FROM test_users WHERE profile_id = $1) AS test_users
+`, [profileId]);
 
 // ---------- SAML signing keys (rows as stored; spKeys.js decrypts) ----------
 

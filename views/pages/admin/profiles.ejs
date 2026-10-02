@@ -1,10 +1,10 @@
 <%- include('../../partials/header') %>
-<% const active = profiles.find((p) => p.active); %>
+<% const served = profiles.some((p) => p.domains.length); %>
 <div class="flex flex-wrap items-end justify-between gap-4">
   <div>
     <h1 class="text-2xl font-semibold">Keycloak profiles</h1>
     <p class="mt-1 max-w-3xl text-muted-foreground">
-      Each profile is a complete Keycloak connection. CloakTail runs on the active one; switching applies at once, without a restart.
+      Each profile is a complete Keycloak connection and serves its own domains, with its own users, roles and sandbox data. Changes apply at once, without a restart.
     </p>
   </div>
   <div class="flex flex-wrap gap-2">
@@ -16,10 +16,10 @@
 <div class="mt-6 grid gap-6">
   <%- include('../../fragments/form-status', { error: null, message }) %>
 
-  <% if (!active) { %>
+  <% if (!served) { %>
     <div class="alert" data-variant="destructive" role="alert">
-      <h2>No active profile</h2>
-      <section>Keycloak sign-in, sign-up and the sandbox are unavailable until you <%= profiles.length ? 'activate a profile' : 'create a profile and activate it' %>.</section>
+      <h2>No profile serves a domain</h2>
+      <section>The portal is unavailable on every domain until you <%= profiles.length ? 'add domains to a profile' : 'create a profile with its domains' %>, for example <code><%= baseUrl %></code>.</section>
     </div>
   <% } %>
 
@@ -46,7 +46,7 @@
       <section class="overflow-x-auto">
         <table class="table">
           <thead>
-            <tr><th>Profile</th><th>Keycloak</th><th>Realms</th><th>Secrets</th><th>Updated</th><th></th></tr>
+            <tr><th>Profile</th><th>Domains</th><th>Keycloak</th><th>Realms</th><th>Secrets</th><th>Updated</th><th></th></tr>
           </thead>
           <tbody>
             <% for (const p of profiles) {
@@ -54,8 +54,11 @@
               <tr>
                 <td>
                   <a href="/admin/keycloak/profiles/<%= p.id %>" class="font-medium hover:underline"><%= p.name %></a>
-                  <% if (p.active) { %><span class="badge ml-1">Active</span><% } %>
                   <% if (p.description) { %><p class="max-w-xs truncate text-xs text-muted-foreground"><%= p.description %></p><% } %>
+                </td>
+                <td class="font-mono text-xs">
+                  <% for (const d of p.domains) { %><div><%= d %></div><% } %>
+                  <% if (!p.domains.length) { %><span class="badge" data-variant="secondary">None</span><% } %>
                 </td>
                 <td class="font-mono text-xs"><%= p.settings.url %></td>
                 <td class="text-xs">
@@ -69,10 +72,6 @@
                 <td class="text-xs text-muted-foreground"><%= p.updatedAt %> UTC<%= p.updatedBy ? ` by ${p.updatedBy}` : '' %></td>
                 <td>
                   <div class="flex justify-end gap-1">
-                    <% if (!p.active) { %>
-                      <button class="btn" data-variant="outline" data-size="sm" hx-post="/admin/keycloak/profiles/<%= p.id %>/activate"
-                              hx-confirm="Switch CloakTail to profile <%= p.name %>? New sign-ins and Keycloak calls use it at once.">Activate</button>
-                    <% } %>
                     <a href="/admin/keycloak/profiles/<%= p.id %>" class="btn" data-variant="ghost" data-size="sm">Edit</a>
                   </div>
                 </td>

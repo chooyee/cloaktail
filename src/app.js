@@ -12,10 +12,13 @@ import { appsRouter, testAcsRouter } from './routes/apps.js';
 import { testUsersRouter } from './routes/testUsers.js';
 import { toolsRouter } from './routes/tools.js';
 import { adminRouter } from './routes/admin.js';
-import { config } from './config.js';
+import { config, tenantContext } from './config.js';
+import { tenantForOrigin } from './keycloakProfiles.js';
 import { countApps, countTestUsers } from './db.js';
 import { userContext, adminContext, requireAuth, requirePermission, csrf, sendError } from './middleware.js';
 import { KeycloakError } from './lib/keycloakAdmin.js';
+import * as content from './content.js';
+import * as seo from './seo.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const app = express();
@@ -29,6 +32,30 @@ if (config.trustProxy !== null) app.set('trust proxy', config.trustProxy);
 app.locals.registrationEnabled = config.registration.enabled;
 app.locals.maxApps = config.sandbox.maxAppsPerDeveloper;
 app.locals.maxTestUsers = config.sandbox.maxTestUsersPerDeveloper;
+app.locals.indexable = false;
+app.locals.canonicalUrl = config.baseUrl;
+app.locals.content = content;
+
+// Every request is served by the Keycloak profile mapped to its domain (admin console), and runs in
+// its context: config.keycloak/sandbox/saml and the database are that profile's. The Host header is
+// only trusted to pick among configured domains. Other hosts get 421, except that the admin console
+// (and its static files) always answers on BASE_URL, so a fresh install can be set up.
+// req.protocol and req.host honour X-Forwarded-Proto/-Host only when TRUST_PROXY is set.
+const baseHost = new URL(config.baseUrl).host;
+const adminOnBaseUrl = (req) => req.host === baseHost && /^\/(admin|static)(\/|$)/.test(req.path);
+
+app.use((req, res, next) => {
+  const origin = `${req.protocol}://${req.host || ''}`.toLowerCase();
+  const tenant = tenantForOrigin(origin);
+  if (!tenant && !adminOnBaseUrl(req)) {
+    const hint = req.protocol === 'http' && tenantForOrigin(origin.replace(/^http:/, 'https:'))
+      ? ' It is configured for HTTPS: behind a reverse proxy that terminates HTTPS, set TRUST_PROXY.' : '';
+    return res.status(421).type('text/plain').send(`No Keycloak profile serves ${origin}.${hint}`
+      + (req.host === baseHost ? ` An administrator can assign it one at ${config.baseUrl}/admin/keycloak.` : ''));
+  }
+  req.siteUrl = tenant?.siteUrl ?? config.baseUrl;
+  tenantContext.run(tenant, next);
+});
 
 app.use((req, res, next) => {
   res.set({
@@ -46,7 +73,7 @@ app.use((req, res, next) => {
   try { res.locals.cssVersion = Math.floor(fs.statSync(cssFile).mtimeMs).toString(36); } catch { res.locals.cssVersion = '0'; }
   next();
 });
-// The active Keycloak profile can change at runtime (admin console), so expose it per request.
+// The Keycloak profile depends on the domain and can change at runtime (admin console), so expose it per request.
 app.use((req, res, next) => {
   res.locals.keycloakConfigured = config.keycloak.configured;
   res.locals.sandboxRealm = config.sandbox.realm || 'sandbox';
@@ -57,6 +84,15 @@ app.use((req, res, next) => {
   };
   next();
 });
+
+// Crawler files (src/seo.js). Before the session middleware so crawlers don't create sessions.
+// Each domain is its own site, so links in them use the request's domain.
+app.get('/robots.txt', (req, res) => res.type('text/plain').send(seo.robotsText({ baseUrl: req.siteUrl })));
+app.get('/sitemap.xml', (req, res) => res.type('application/xml').send(seo.sitemapXml({ baseUrl: req.siteUrl })));
+const markdown = (full) => (req, res) => res.type('text/markdown; charset=utf-8')
+  .set('Cache-Control', 'public, max-age=3600').send(seo.llmsText({ full, baseUrl: req.siteUrl }));
+app.get('/llms.txt', markdown(false));
+app.get('/llms-full.txt', markdown(true));
 
 app.use('/static/vendor/htmx.min.js', (req, res) =>
   res.sendFile(path.join(root, 'node_modules/htmx.org/dist/htmx.min.js')));
@@ -69,15 +105,43 @@ app.use(passport.session());
 app.use(userContext);
 app.use(adminContext);
 app.use(csrf);
+// Search engines index only the public pages, as signed-out visitors see them. /guide is the
+// landing page for signed-in users, so its canonical URL is /.
+app.use((req, res, next) => {
+  res.locals.indexable = !req.user && seo.indexedPaths().includes(req.path);
+  res.locals.canonicalUrl = req.siteUrl + (req.path === '/guide' ? '/' : req.path);
+  next();
+});
 
 app.use(authRouter);
 app.use(testAcsRouter);
 app.use('/register', registerRouter);
 
 // Public pages. Signed-out visitors land on the product page; signed-in users get the dashboard.
-const landing = (req, res) => res.render('pages/landing', { title: 'SAML SSO, tested before you ship', fullBleed: true });
+const landing = (req, res) => res.render('pages/landing', {
+  title: 'Test Keycloak SAML SSO before you ship',
+  description: 'Self-service Keycloak SAML sandbox for developers. Register a SAML client or import SP metadata, sign in as a test user, and inspect signatures, attributes and the raw response.',
+  fullBleed: true,
+});
 app.get('/guide', landing);
-app.get('/disclaimer', (req, res) => res.render('pages/disclaimer', { title: 'Disclaimer' }));
+app.get('/troubleshooting', (req, res) => res.render('pages/troubleshooting/index', {
+  title: 'Keycloak SAML errors and how to fix them',
+  description: 'Fixes for the most common Keycloak SAML errors: invalid requester, invalid redirect uri, audience check failed, signature validation failed and missing attributes.',
+}));
+app.get('/troubleshooting/:slug', (req, res) => {
+  const problem = content.findProblem(req.params.slug);
+  if (!problem) return sendError(req, res, 404, 'Page not found.');
+  res.render('pages/troubleshooting/problem', {
+    title: `${problem.q.replace(/[“”]/g, '')}: Keycloak SAML fix`,
+    description: problem.a,
+    problem,
+    baseUrl: req.siteUrl,
+  });
+});
+app.get('/disclaimer', (req, res) => res.render('pages/disclaimer', {
+  title: 'Disclaimer',
+  description: 'CloakTail and its sandbox realm are for development and testing only. Do not use real personal data or production credentials.',
+}));
 app.get('/', (req, res, next) => (req.user ? next() : landing(req, res)), requirePermission('dashboard.view'), async (req, res) => {
   const [appCount, testUserCount] = await Promise.all([countApps(req.user.username), countTestUsers(req.user.username)]);
   res.render('pages/dashboard', {

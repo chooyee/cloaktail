@@ -1,5 +1,5 @@
 import express from 'express';
-import { config } from '../config.js';
+import { config, testAcsUrlFor } from '../config.js';
 import { KeycloakError } from '../lib/keycloakAdmin.js';
 import { loadIdpCerts } from '../lib/idpCerts.js';
 import {
@@ -15,7 +15,7 @@ import { requirePermission, redirect, isHtmx, sendError } from '../middleware.js
 
 export const appsRouter = express.Router();
 
-const formOptions = { NAME_ID_FORMATS, USER_ATTRIBUTES, ATTRIBUTE_NAME_FORMATS, testAcsUrl: config.sandbox.testAcsUrl };
+const formOptions = { NAME_ID_FORMATS, USER_ATTRIBUTES, ATTRIBUTE_NAME_FORMATS };
 const canCreate = (req) => req.can('apps.own');
 
 // Owners manage their own apps; apps.view_all / apps.manage_all extend that to everyone's.
@@ -76,7 +76,7 @@ appsRouter.get('/', async (req, res) => {
 async function renderNew(req, res, values, error, status = 200) {
   const quotaReached = await countApps(req.user.username) >= config.sandbox.maxAppsPerDeveloper;
   res.status(isHtmx(req) ? 200 : status).render('pages/apps/form', {
-    title: 'Register application', app: null, values, error, isNew: true, ...formOptions,
+    title: 'Register application', app: null, values, error, isNew: true, ...formOptions, testAcsUrl: testAcsUrlFor(req.siteUrl),
     quotaReached,
     maxApps: config.sandbox.maxAppsPerDeveloper,
   });
@@ -150,7 +150,8 @@ appsRouter.get('/:id', async (req, res) => {
 
 function renderEdit(req, res, app, values, locals = {}) {
   res.render('pages/apps/form', {
-    title: `Edit ${app.name}`, app, values, isNew: false, error: null, message: null, ...formOptions, ...locals,
+    title: `Edit ${app.name}`, app, values, isNew: false, error: null, message: null, ...formOptions,
+    testAcsUrl: testAcsUrlFor(req.siteUrl), ...locals,
   });
 }
 
@@ -198,7 +199,10 @@ appsRouter.post('/:id/test', async (req, res) => {
   if (client.values.clientSignature) {
     return sendError(req, res, 400, 'This client requires signed requests, which only your app can create. Use the IdP-initiated link instead, or turn off "Require signed requests" while testing.');
   }
-  const url = await startTest({ app, values: client.values, startedBy: req.user.username });
+  const acsUrl = testAcsUrlFor(req.siteUrl);
+  // Clients registered before this domain was added to BASE_URL don't accept its test ACS yet.
+  if (!client.rep.redirectUris?.includes(acsUrl)) await updateSamlClient(app.kc_id, client.values, app.owner);
+  const url = await startTest({ app, values: client.values, startedBy: req.user.username, acsUrl });
   redirect(req, res, url);
 });
 

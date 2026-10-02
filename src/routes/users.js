@@ -4,6 +4,7 @@ import {
   listRoles, getUserRoles, getRolesForUsernames, setUserRoles, upsertUser, deleteLocalUser, getLocalUser,
 } from '../db.js';
 import { requirePermission, redirect, isHtmx, sendError } from '../middleware.js';
+import { currentProfileId } from '../config.js';
 import { destroySessions } from '../session.js';
 import { deleteOwnerResources } from '../lib/samlClients.js';
 
@@ -144,7 +145,7 @@ usersRouter.post('/:id/profile', requirePermission('users.edit'), async (req, re
   if (kcUser.enabled && !changes.enabled) {
     // Disabled: end their Keycloak SSO sessions and their sessions in this app.
     await keycloakAdmin.logoutUser(kcUser.id);
-    await destroySessions((u) => u.username === kcUser.username.toLowerCase());
+    await destroySessions((u) => u.profileId === currentProfileId() && u.username === kcUser.username.toLowerCase());
   }
   render({ message: 'Profile saved.' });
 });
@@ -197,6 +198,6 @@ usersRouter.post('/:id/delete', requirePermission('users.delete'), async (req, r
   // Their sandbox applications and test users go too.
   await deleteOwnerResources(kcUser.username.toLowerCase());
   await deleteLocalUser(kcUser.username);
-  await destroySessions((u) => u.username === kcUser.username.toLowerCase());
+  await destroySessions((u) => u.profileId === currentProfileId() && u.username === kcUser.username.toLowerCase());
   redirect(req, res, '/users');
 });
