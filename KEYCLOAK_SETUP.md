@@ -47,7 +47,7 @@ Everything to configure in a fresh (or reset) Keycloak for CloakTail. Values ass
 
 **Keys**
 - [ ] Client signature required: **On**
-- [ ] **Import key** → Archive format **Certificate PEM** → upload the certificate from CloakTail **/admin → Signing certificate → Download**
+- [ ] **Import key** → Archive format **Certificate PEM** → upload the certificate from CloakTail **/admin → Keycloak profiles → (your profile) → SAML signing certificate → Download**
 
 **Advanced → Fine Grain SAML Endpoint Configuration**
 - [ ] Assertion Consumer Service POST Binding URL: `http://localhost:3000/saml/acs`
@@ -103,10 +103,10 @@ A reset gives the realms **new signing keys** and the clients **new secrets**, s
 - [ ] Sandbox realm `ep-dev`, sandbox service account `devportal-admin` + **new secret**
 - [ ] **Pinned IdP certificate**: clear it (the realm certificate is then fetched automatically), or paste the new one from **Realm settings → Keys → RS256 → Certificate**. If you keep the old one, every sign-in fails.
 - [ ] Domains: still list your portal domain(s), e.g. `http://localhost:3000`
-- [ ] **Run checks**: all five should pass (both realms, realm signing certificate, both service accounts)
+- [ ] **Check all connections**: all seven should pass (Keycloak server, both realms, realm signing certificate, sandbox OIDC discovery and keys, both service accounts). Each section also has its own **Check connection** button.
 
-**Signing certificate**
-- [ ] Download the active certificate and import it into `samlclient` → **Keys** (step 1a). The reset removed it from Keycloak.
+**(your profile) → SAML signing certificate**
+- [ ] Download the profile's active certificate and import it into `samlclient` → **Keys** (step 1a). The reset removed it from Keycloak.
 
 ---
 

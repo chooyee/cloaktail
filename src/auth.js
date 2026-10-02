@@ -6,7 +6,7 @@ import { upsertUser, getUserRoles, addUserRoleByName } from './db.js';
 import { destroySessions } from './session.js';
 import { idpCertCallback, loadIdpCerts } from './lib/idpCerts.js';
 import { onKeycloakSettingsChange, listTenants } from './keycloakProfiles.js';
-import { getActiveSpKey, onSpKeyChange } from './spKeys.js';
+import { getActiveSpKeys, onSpKeyChange } from './spKeys.js';
 import { sendError } from './middleware.js';
 
 // A pinned signing certificate must be the realm's, not a client's; warn early if not.
@@ -31,8 +31,8 @@ function attr(profile, name) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-// One per domain, built from the Keycloak profile serving it and the signing key; rebuilt when an
-// administrator changes either. Built outside any request, so it reads the tenant passed in, not
+// One per domain, built from the Keycloak profile serving it and that profile's signing key; rebuilt
+// when an administrator changes either. Built outside any request, so it reads the tenant passed in, not
 // config. The callbacks run inside the request, so the database calls there use its profile.
 // The portal signs AuthnRequests and LogoutRequests with its own key pair, so Keycloak can keep
 // "Client signature required" on; the certificate is imported into the Keycloak client.
@@ -95,30 +95,28 @@ const createSamlStrategy = (spKey, tenant) => new SamlStrategy(
   },
 );
 
-// Strategies by domain. Empty until there is a signing key (fresh install): Keycloak sign-in is
-// unavailable meanwhile.
+// Strategies by domain: { strategy, certificate }. A domain whose profile has no signing key yet
+// has none: Keycloak sign-in is unavailable there meanwhile.
 let samlStrategies = new Map();
-let spCertificate = null;
 const strategyName = (siteUrl) => `saml:${siteUrl}`;
 // req.siteUrl is the request's domain when a profile serves it (app.js).
-const samlStrategyFor = (req) => samlStrategies.get(req.siteUrl) || null;
+const samlStrategyFor = (req) => samlStrategies.get(req.siteUrl)?.strategy || null;
 const authenticateSaml = (req, ...args) => passport.authenticate(strategyName(req.siteUrl), ...args);
 
 async function useActiveSettings() {
-  const spKey = await getActiveSpKey();
+  const spKeys = await getActiveSpKeys();
   for (const siteUrl of samlStrategies.keys()) passport.unuse(strategyName(siteUrl));
   samlStrategies = new Map();
-  spCertificate = null;
-  if (!spKey) return;
   const checked = new Set();
   for (const tenant of listTenants()) {
+    const spKey = spKeys.get(tenant.profileId);
+    if (!spKey) continue;
     const strategy = createSamlStrategy(spKey, tenant);
-    samlStrategies.set(tenant.siteUrl, strategy);
+    samlStrategies.set(tenant.siteUrl, { strategy, certificate: spKey.certificate });
     passport.use(strategyName(tenant.siteUrl), strategy);
     if (!checked.has(tenant.profileId)) checkPinnedCert(tenant);
     checked.add(tenant.profileId);
   }
-  spCertificate = spKey.certificate;
 }
 await useActiveSettings();
 onKeycloakSettingsChange(useActiveSettings);
@@ -126,7 +124,7 @@ onSpKeyChange(useActiveSettings);
 
 function requireSaml(req, res, next) {
   if (samlStrategyFor(req)) return next();
-  const missing = config.keycloak.configured ? 'a SAML signing certificate' : 'a Keycloak profile for this domain';
+  const missing = config.keycloak.configured ? 'a SAML signing certificate to this domain’s Keycloak profile' : 'a Keycloak profile for this domain';
   sendError(req, res, 503, `Keycloak sign-in is not set up yet. An administrator must add ${missing} in the admin console.`);
 }
 
@@ -147,7 +145,7 @@ authRouter.get('/login', (req, res) => {
   if (req.user) return res.redirect('/');
   res.render('pages/login', {
     title: 'Sign in',
-    description: 'Sign in to CloakTail with your developer account to manage your Keycloak SAML clients and test users.',
+    description: 'Sign in to CloakTail with your developer account to manage your Keycloak SAML and OIDC clients and test users.',
     returnTo: safeReturnTo(req.query.returnTo),
     loggedOut: 'loggedOut' in req.query,
     registered: 'registered' in req.query,
@@ -215,5 +213,5 @@ authRouter.all('/saml/logout/callback', express.urlencoded({ extended: false }),
 
 // SP metadata, handy for importing the client into Keycloak.
 authRouter.get('/saml/metadata', requireSaml, (req, res) => {
-  res.type('application/xml').send(samlStrategyFor(req).generateServiceProviderMetadata(null, spCertificate));
+  res.type('application/xml').send(samlStrategyFor(req).generateServiceProviderMetadata(null, samlStrategies.get(req.siteUrl).certificate));
 });

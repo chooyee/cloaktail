@@ -3,6 +3,12 @@
   const isNew = !profile;
   const action = isNew ? '/admin/keycloak/profiles' : `/admin/keycloak/profiles/${profile.id}`;
   const fieldError = (key) => errors[key];
+  // Connection checks use the form's current values (saved or not).
+  const checkBase = isNew ? '/admin/keycloak/check' : `/admin/keycloak/profiles/${profile.id}/check`;
+  const checkButton = (section, label) => `<button type="button" class="btn shrink-0" data-variant="outline" data-size="sm"
+      hx-post="${checkBase}/${section}" hx-include="#profile-form" hx-target="#check-${section}" hx-swap="innerHTML" hx-disabled-elt="this">
+      <span class="in-[.htmx-request]:hidden">${label}</span><span class="hidden in-[.htmx-request]:inline">Checking…</span></button>`;
+  const checkResult = (section) => `<div id="check-${section}" aria-live="polite" class="rounded-lg border p-4 empty:hidden"></div>`;
 %>
 <a href="/admin/keycloak" class="text-sm text-muted-foreground hover:underline">← Keycloak profiles</a>
 <div class="mt-2 flex flex-wrap items-center gap-3">
@@ -12,7 +18,7 @@
 
 <div class="mt-6 grid gap-6 lg:grid-cols-[1fr_22rem]">
   <form id="profile-form" class="card" method="post" action="<%= action %>"
-        hx-post="<%= action %>" hx-target="#profile-form" hx-select="#profile-form" hx-swap="outerHTML">
+        hx-post="<%= action %>" hx-target="#profile-form" hx-select="#profile-form" hx-swap="outerHTML" hx-disinherit="*">
     <input type="hidden" name="_csrf" value="<%= csrfToken %>">
     <section class="grid gap-8">
       <%- include('../../fragments/form-status', { error, message }) %>
@@ -51,10 +57,14 @@
 
       <% for (const section of sections) { %>
         <div class="grid gap-4">
-          <div>
-            <h2 class="font-semibold"><%= section.title %></h2>
-            <p class="text-sm text-muted-foreground"><%= section.text %></p>
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h2 class="font-semibold"><%= section.title %></h2>
+              <p class="text-sm text-muted-foreground"><%= section.text %></p>
+            </div>
+            <%- checkButton(section.id, 'Check connection') %>
           </div>
+          <%- checkResult(section.id) %>
 
           <% for (const f of fields.filter((x) => x.section === section.id)) {
                const err = fieldError(f.key);
@@ -94,6 +104,20 @@
   </form>
 
   <div class="grid gap-6 self-start">
+    <div class="card">
+      <header>
+        <h2>Check all connections</h2>
+        <p>The Keycloak server, both realms, the realm signing certificate, the sandbox’s OpenID Connect keys and both service accounts.
+          Uses the values in the form, saved or not<%= isNew ? '' : '; empty secret fields use the stored secrets' %>. Safe to run before adding domains.</p>
+      </header>
+      <section>
+        <div id="check-all" aria-live="polite"><p class="text-sm text-muted-foreground">Or check one connection with the button next to it.</p></div>
+      </section>
+      <footer class="flex justify-end">
+        <%- checkButton('all', 'Check all connections') %>
+      </footer>
+    </div>
+
     <% if (isNew) { %>
       <div class="card">
         <header><h2>After you create it</h2></header>
@@ -123,15 +147,26 @@
 
       <div class="card">
         <header>
-          <h2>Test connection</h2>
-          <p>Checks the saved profile: both realms, the signing certificate and both service accounts. Safe to run before adding domains.</p>
+          <h2>SAML signing certificate</h2>
+          <p>This profile’s own key: CloakTail signs its SAML requests with it on this profile’s domains.</p>
         </header>
-        <section>
-          <div id="test-result" aria-live="polite"><p class="text-sm text-muted-foreground">Save your changes first.</p></div>
+        <section class="grid gap-1 text-sm">
+          <% const active = spKeys.active; %>
+          <% if (!active) { %>
+            <p><span class="badge" data-variant="<%= profile.domains.length ? 'destructive' : 'secondary' %>">None</span>
+              Keycloak sign-in is unavailable on its domains until you add one.</p>
+          <% } else { %>
+            <p>
+              Valid until <%= active.validTo %>
+              <% if (active.daysLeft < 0) { %><span class="badge ml-1" data-variant="destructive">Expired</span>
+              <% } else if (active.daysLeft < 30) { %><span class="badge ml-1" data-variant="destructive">Expires in <%= active.daysLeft %> days</span><% } %>
+            </p>
+            <p class="break-all font-mono text-xs text-muted-foreground"><%= active.fingerprint %></p>
+          <% } %>
+          <% if (spKeys.pending) { %><p><span class="badge" data-variant="secondary">Pending replacement</span> waiting to be activated.</p><% } %>
         </section>
         <footer class="flex justify-end">
-          <button class="btn" data-variant="outline" hx-post="/admin/keycloak/profiles/<%= profile.id %>/test"
-                  hx-target="#test-result" hx-disabled-elt="this">Run checks</button>
+          <a href="/admin/keycloak/profiles/<%= profile.id %>/signing" class="btn" data-variant="outline"><%= active ? 'Manage' : 'Add a certificate' %></a>
         </footer>
       </div>
 

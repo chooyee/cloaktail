@@ -3,6 +3,7 @@
 <a href="<%= isNew ? '/apps' : `/apps/${app.id}` %>" class="text-sm text-muted-foreground hover:underline">← <%= isNew ? 'Applications' : app.name %></a>
 <h1 class="mt-2 text-2xl font-semibold"><%= isNew ? 'Register application' : 'Edit application' %></h1>
 <p class="mt-1 text-muted-foreground">Creates a SAML client for your app in the <code><%= sandboxRealm %></code> sandbox realm.</p>
+<% if (isNew) { %><%- include('../../fragments/protocol-tabs', { protocol: 'saml' }) %><% } %>
 
 <div id="app-page" class="mt-6 grid gap-6 lg:grid-cols-[1fr_22rem]">
   <% if (isNew && quotaReached) { %>
@@ -14,6 +15,7 @@
   <form class="card" method="post" action="<%= action %>" hx-post="<%= action %>"
         hx-target="#app-page" hx-select="#app-page" hx-swap="outerHTML">
     <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <input type="hidden" name="protocol" value="saml">
     <section class="grid gap-6">
       <%- include('../../fragments/form-status') %>
 
@@ -120,6 +122,15 @@
           <textarea id="encryptionCert" name="encryptionCert" rows="4" class="font-mono text-xs"
                     placeholder="-----BEGIN CERTIFICATE-----"><%= values.encryptionCert %></textarea>
         </div>
+        <div class="field">
+          <label for="encryptionKeyAlgorithm">Encryption key algorithm</label>
+          <select id="encryptionKeyAlgorithm" name="encryptionKeyAlgorithm">
+            <% for (const [value, alg] of Object.entries(ENCRYPTION_KEY_ALGORITHMS)) { %>
+              <option value="<%= value %>" <%= values.encryptionKeyAlgorithm === value ? 'selected' : '' %>><%= alg.label %></option>
+            <% } %>
+          </select>
+          <p>How Keycloak encrypts the assertion’s key for your certificate. passport-saml (node-saml) and several other libraries can’t decrypt Keycloak’s default, RSA-OAEP 1.1.</p>
+        </div>
       </fieldset>
     </section>
     <footer class="flex justify-end gap-2">
@@ -156,7 +167,7 @@
         <p>The portal also adds this URL to your client’s allowed redirect URIs so “Test connection” can receive the response.</p>
       </header>
       <section>
-        <code class="block break-all rounded bg-muted p-2 text-xs"><%= testAcsUrl %></code>
+        <code class="block break-all rounded bg-muted p-2 text-xs"><%= testUrl %></code>
       </section>
     </div>
   </div>

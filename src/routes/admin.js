@@ -6,13 +6,13 @@ import {
 } from '../db.js';
 import { setupRequired, ensureSetupToken, setupTokenMatches, finishSetup } from '../adminSetup.js';
 import { hashPassword, verifyPassword, passwordProblem, DUMMY_HASH } from '../lib/password.js';
-import { checkKeycloakConnection } from '../lib/keycloakCheck.js';
+import { CHECK_SECTIONS, checkKeycloakConnection } from '../lib/keycloakCheck.js';
 import {
   PROFILE_SECTIONS, PROFILE_FIELDS, listProfiles, getProfile, createProfile, updateProfile, duplicateProfile,
-  deleteProfile, countProfileData, profileInputFromForm, exportProfiles, importProfiles,
+  deleteProfile, countProfileData, profileInputFromForm, checkSettingsFromForm, exportProfiles, importProfiles,
 } from '../keycloakProfiles.js';
 import {
-  KEY_SIZES, VALIDITY_YEARS, getSpKeysView, generateSpKey, importSpKey, activatePendingSpKey, discardPendingSpKey,
+  KEY_SIZES, VALIDITY_YEARS, getSpKeysView, listSpKeysViews, generateSpKey, importSpKey, activatePendingSpKey, discardPendingSpKey,
 } from '../spKeys.js';
 import { config } from '../config.js';
 import { requireAdmin, redirect, sendError } from '../middleware.js';
@@ -176,12 +176,13 @@ adminRouter.get('/', (req, res) => res.redirect('/admin/keycloak'));
 const APPLIED_NOTE = 'Its domains use the changes for new sign-ins and Keycloak calls now. People already signed in keep their session until they sign out.';
 
 adminRouter.get('/keycloak', async (req, res) => {
-  const [profiles, spKeys] = await Promise.all([listProfiles(), getSpKeysView()]);
+  const [profiles, spKeys] = await Promise.all([listProfiles(), listSpKeysViews()]);
   res.render('pages/admin/profiles', {
     title: 'Keycloak profiles',
     profiles,
     message: 'deleted' in req.query ? 'Profile deleted.' : null,
-    hasSigningKey: Boolean(spKeys.active),
+    // profile id -> { active, pending }
+    spKeys,
     baseUrl: config.baseUrl,
   });
 });
@@ -192,6 +193,7 @@ async function renderProfile(res, { status = 200, profile = null, values, errors
     baseUrl: config.baseUrl,
     // Shown in the delete confirmation: what deleting removes from the database.
     data: profile ? await countProfileData(profile.id) : null,
+    spKeys: profile ? await getSpKeysView(profile.id) : null,
     title: profile ? `Keycloak profile: ${profile.name}` : 'New Keycloak profile',
     sections: PROFILE_SECTIONS,
     fields: PROFILE_FIELDS,
@@ -252,10 +254,24 @@ adminRouter.post('/keycloak/profiles/:id', async (req, res) => {
   });
 });
 
-adminRouter.post('/keycloak/profiles/:id/test', async (req, res) => {
+// Connection checks for one section of the profile form (server, portal, sandbox) or all of them,
+// with the values in the form, saved or not. Empty secret inputs use the stored secrets.
+async function runChecks(req, res, existing) {
+  const sections = req.params.section === 'all' ? CHECK_SECTIONS : CHECK_SECTIONS.filter((s) => s === req.params.section);
+  if (!sections.length) return sendError(req, res, 404, 'Unknown connection.');
+  const { settings, errors } = await checkSettingsFromForm(req.body, existing, sections);
+  const checks = errors.length
+    ? errors.map((e) => ({ name: e.label, ok: false, detail: `${e.message} Fix it, then check again.` }))
+    : await checkKeycloakConnection(settings, sections);
+  res.set('Cache-Control', 'no-store').render('fragments/admin-checks', { checks, checkedAt: new Date().toLocaleTimeString('en-GB') });
+}
+
+adminRouter.post('/keycloak/check/:section', (req, res) => runChecks(req, res, null));
+
+adminRouter.post('/keycloak/profiles/:id/check/:section', async (req, res) => {
   const profile = await loadProfile(req, res);
   if (!profile) return;
-  res.render('fragments/admin-checks', { checks: await checkKeycloakConnection({ ...profile.settings, ...profile.secrets }) });
+  await runChecks(req, res, profile);
 });
 
 adminRouter.post('/keycloak/profiles/:id/duplicate', async (req, res) => {
@@ -315,10 +331,12 @@ adminRouter.post('/keycloak/import', async (req, res) => {
   renderImport(res, { onConflict, result });
 });
 
-// ---------- SAML signing certificate ----------
+// ---------- SAML signing certificate (one per profile) ----------
 
 const CN_RE = /^[A-Za-z0-9 ._:/@-]{1,64}$/;
-const defaultCommonName = () => `CloakTail ${new URL(config.baseUrl).host}`.slice(0, 64);
+const defaultCommonName = (profile) =>
+  `CloakTail ${profile.name}`.replace(/[^A-Za-z0-9 ._:/@-]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 64);
+const signingPath = (profile) => `/admin/keycloak/profiles/${profile.id}/signing`;
 
 // Key generation is CPU-heavy; limit it per administrator.
 const keyGenerations = new Map();
@@ -330,13 +348,15 @@ function keyGenerationLimited(username) {
   return hits.length > 10;
 }
 
-const renderSigning = async (res, { status = 200, ...locals } = {}) =>
+const renderSigning = async (res, profile, { status = 200, ...locals } = {}) =>
   res.status(status).render('pages/admin/signing', {
-    title: 'SAML signing certificate',
-    ...(await getSpKeysView()),
+    title: `SAML signing certificate: ${profile.name}`,
+    profile,
+    signingPath: signingPath(profile),
+    ...(await getSpKeysView(profile.id)),
     KEY_SIZES,
     VALIDITY_YEARS,
-    values: { commonName: defaultCommonName(), keySize: 2048, years: 5 },
+    values: { commonName: defaultCommonName(profile), keySize: 2048, years: 5 },
     error: null,
     importError: null,
     importField: null,
@@ -349,43 +369,56 @@ const STATUS_MESSAGES = {
   pending: 'The new certificate is pending. Import it into the portal SAML client in Keycloak (Keys tab), then activate it here.',
 };
 
-adminRouter.get('/signing', (req, res) => {
-  const message = 'activated' in req.query ? 'The new certificate is active. CloakTail now signs with it.'
+// The certificate used to be global; its old address leads to the profiles, which each have one now.
+adminRouter.get('/signing', (req, res) => res.redirect('/admin/keycloak'));
+
+adminRouter.get('/keycloak/profiles/:id/signing', async (req, res) => {
+  const profile = await loadProfile(req, res);
+  if (!profile) return;
+  const message = 'activated' in req.query ? 'The new certificate is active. CloakTail now signs with it on this profile’s domains.'
     : 'discarded' in req.query ? 'The pending certificate was discarded.'
       : Object.hasOwn(STATUS_MESSAGES, req.query.created ?? '') ? STATUS_MESSAGES[req.query.created] : null;
-  return renderSigning(res, { message });
+  return renderSigning(res, profile, { message });
 });
 
-adminRouter.post('/signing/generate', async (req, res) => {
+adminRouter.post('/keycloak/profiles/:id/signing/generate', async (req, res) => {
+  const profile = await loadProfile(req, res);
+  if (!profile) return;
   const values = {
     commonName: String(req.body.commonName || '').trim(),
     keySize: Number(req.body.keySize),
     years: Number(req.body.years),
   };
-  const fail = (error) => renderSigning(res, { status: 422, values, error });
+  const fail = (error) => renderSigning(res, profile, { status: 422, values, error });
   if (!CN_RE.test(values.commonName)) return fail('Common name: up to 64 characters (letters, digits, space . - _ : / @).');
   if (!KEY_SIZES.includes(values.keySize)) return fail('Choose a key size.');
   if (!VALIDITY_YEARS.includes(values.years)) return fail('Choose a validity period.');
   if (keyGenerationLimited(req.admin.username)) return fail('You have generated many keys recently. Try again in 10 minutes.');
-  const status = await generateSpKey(values, req.admin.username);
-  redirect(req, res, `/admin/signing?created=${status}`);
+  const status = await generateSpKey(profile, values, req.admin.username);
+  redirect(req, res, `${signingPath(profile)}?created=${status}`);
 });
 
-adminRouter.post('/signing/import', async (req, res) => {
-  const { error, field, status } = await importSpKey(String(req.body.certificate || ''), String(req.body.privateKey || ''), req.admin.username);
+adminRouter.post('/keycloak/profiles/:id/signing/import', async (req, res) => {
+  const profile = await loadProfile(req, res);
+  if (!profile) return;
+  const { error, field, status } = await importSpKey(profile, String(req.body.certificate || ''), String(req.body.privateKey || ''), req.admin.username);
   // Never echo the private key back.
-  if (error) return renderSigning(res, { status: 422, importError: error, importField: field });
-  redirect(req, res, `/admin/signing?created=${status}`);
+  if (error) return renderSigning(res, profile, { status: 422, importError: error, importField: field });
+  redirect(req, res, `${signingPath(profile)}?created=${status}`);
 });
 
-adminRouter.post('/signing/activate', async (req, res) => {
-  if (!(await activatePendingSpKey(req.admin.username))) return sendError(req, res, 400, 'There is no pending certificate to activate.');
-  redirect(req, res, '/admin/signing?activated');
+adminRouter.post('/keycloak/profiles/:id/signing/activate', async (req, res) => {
+  const profile = await loadProfile(req, res);
+  if (!profile) return;
+  if (!(await activatePendingSpKey(profile, req.admin.username))) return sendError(req, res, 400, 'There is no pending certificate to activate.');
+  redirect(req, res, `${signingPath(profile)}?activated`);
 });
 
-adminRouter.post('/signing/discard', async (req, res) => {
-  await discardPendingSpKey(req.admin.username);
-  redirect(req, res, '/admin/signing?discarded');
+adminRouter.post('/keycloak/profiles/:id/signing/discard', async (req, res) => {
+  const profile = await loadProfile(req, res);
+  if (!profile) return;
+  await discardPendingSpKey(profile, req.admin.username);
+  redirect(req, res, `${signingPath(profile)}?discarded`);
 });
 
 // ---------- administrators ----------

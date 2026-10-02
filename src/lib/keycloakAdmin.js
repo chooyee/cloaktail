@@ -134,6 +134,11 @@ export function createAdminClient(getSettings, secretLabel) {
 
     deleteClient: (clientUuid) => request('DELETE', `/clients/${id(clientUuid)}`),
 
+    // Confidential OIDC clients: { type: 'secret', value }.
+    getClientSecret: (clientUuid) => request('GET', `/clients/${id(clientUuid)}/client-secret`),
+
+    regenerateClientSecret: (clientUuid) => request('POST', `/clients/${id(clientUuid)}/client-secret`),
+
     listProtocolMappers: (clientUuid) => request('GET', `/clients/${id(clientUuid)}/protocol-mappers/models`),
 
     addProtocolMapper: (clientUuid, mapper) =>
@@ -151,5 +156,5 @@ export function createAdminClient(getSettings, secretLabel) {
 // Portal realm: developer and admin accounts.
 export const keycloakAdmin = createAdminClient(() => config.keycloak, 'portal service account client secret');
 
-// Sandbox realm: developers' SAML clients and test users.
+// Sandbox realm: developers' SAML and OIDC clients and test users.
 export const sandboxAdmin = createAdminClient(() => config.sandbox, 'sandbox service account client secret');

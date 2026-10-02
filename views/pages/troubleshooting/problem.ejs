@@ -10,7 +10,7 @@
   </nav>
   <h1 class="mt-4 text-3xl font-semibold tracking-tight text-balance"><%= problem.q %></h1>
   <p class="mt-3 text-lg text-muted-foreground text-pretty"><%= problem.a %></p>
-  <p class="mt-2 text-xs text-muted-foreground">Keycloak SAML troubleshooting · Last updated <time datetime="<%= content.updated %>"><%= content.updatedLabel %></time></p>
+  <p class="mt-2 text-xs text-muted-foreground">Keycloak <%= content.PROTOCOL_NAMES[problem.protocol] %> troubleshooting · Last updated <time datetime="<%= content.updated %>"><%= content.updatedLabel %></time></p>
 
   <div class="mt-10 grid gap-8 text-sm leading-relaxed">
     <section>
@@ -29,14 +29,19 @@
 
   <aside class="mt-12 rounded-xl border bg-muted/40 p-6">
     <h2 class="font-semibold">See exactly what Keycloak sends</h2>
-    <p class="mt-2 text-sm text-muted-foreground">A CloakTail test login shows the status, audience, signatures, attributes and raw XML of a real sign-in, so you can tell a Keycloak problem from an app problem.</p>
-    <a href="<%= user ? '/apps' : (registrationEnabled ? '/register' : '/login') %>" class="btn mt-4" data-size="sm"><%= user ? 'Open your applications' : (registrationEnabled ? 'Create developer account' : 'Sign in') %></a>
+    <p class="mt-2 text-sm text-muted-foreground"><%= problem.protocol === 'OIDC'
+      ? 'A CloakTail test login runs the code flow with PKCE and shows the token response, the ID token signature, issuer, audience, nonce and every claim, so you can tell a Keycloak problem from an app problem.'
+      : 'A CloakTail test login shows the status, audience, signatures, attributes and raw XML of a real sign-in, so you can tell a Keycloak problem from an app problem.' %></p>
+    <div class="mt-4 flex flex-wrap gap-2">
+    <a href="<%= user ? '/apps' : (registrationEnabled ? '/register' : '/login') %>" class="btn" data-size="sm"><%= user ? 'Open your applications' : (registrationEnabled ? 'Create developer account' : 'Sign in') %></a>
+    <a href="<%= problem.protocol === 'OIDC' ? '/tools/decode/jwt' : '/tools/decode' %>" class="btn" data-variant="outline" data-size="sm"><%= problem.protocol === 'OIDC' ? 'Decode a JWT' : 'Decode a SAML message' %></a>
+    </div>
   </aside>
 
   <section class="mt-12">
-    <h2 class="text-base font-semibold">Other problems</h2>
+    <h2 class="text-base font-semibold">Other <%= content.PROTOCOL_NAMES[problem.protocol] %> problems</h2>
     <ul class="mt-3 grid gap-2 text-sm">
-      <% for (const other of content.problems.filter((p) => p !== problem)) { %>
+      <% for (const other of content.problems.filter((p) => p !== problem && p.protocol === problem.protocol)) { %>
         <li><a href="/troubleshooting/<%= other.slug %>" class="underline-offset-4 hover:underline"><%= other.q %></a></li>
       <% } %>
     </ul>

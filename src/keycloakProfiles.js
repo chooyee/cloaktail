@@ -209,6 +209,23 @@ export function profileInputFromForm(body, existing = null) {
   };
 }
 
+// Settings for the connection checks, from the profile form as it is (saved or not; an empty secret
+// uses the stored one). errors lists only invalid fields the checked sections use, as
+// [{ field, label, message }]; the Keycloak URL counts for every section.
+export async function checkSettingsFromForm(body, existing, sections) {
+  const input = { ...profileInputFromForm(body, existing), domains: undefined };
+  const { profile, errors } = await validateProfile(input, { id: existing?.id ?? null, checkName: false });
+  const fields = PROFILE_FIELDS.filter((f) => f.key === 'url' || sections.includes(f.section));
+  return {
+    settings: { ...profile.settings, ...profile.secrets },
+    errors: fields.filter((f) => errors[f.key]).map((f) => ({
+      field: f.key,
+      label: `${PROFILE_SECTIONS.find((s) => s.id === f.section).title}: ${f.label}`,
+      message: errors[f.key],
+    })),
+  };
+}
+
 // ---------- domains -> profiles ----------
 
 // Built from the database at startup and after every change: origin -> tenant (see config.js).

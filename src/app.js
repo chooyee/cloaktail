@@ -19,6 +19,7 @@ import { userContext, adminContext, requireAuth, requirePermission, csrf, sendEr
 import { KeycloakError } from './lib/keycloakAdmin.js';
 import * as content from './content.js';
 import * as seo from './seo.js';
+import { highlight } from './lib/highlight.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const app = express();
@@ -35,6 +36,7 @@ app.locals.maxTestUsers = config.sandbox.maxTestUsersPerDeveloper;
 app.locals.indexable = false;
 app.locals.canonicalUrl = config.baseUrl;
 app.locals.content = content;
+app.locals.highlight = highlight;
 
 // Every request is served by the Keycloak profile mapped to its domain (admin console), and runs in
 // its context: config.keycloak/sandbox/saml and the database are that profile's. The Host header is
@@ -81,6 +83,8 @@ app.use((req, res, next) => {
     realmUrl: config.sandbox.realmUrl,
     samlEndpoint: config.sandbox.samlEndpoint,
     descriptorUrl: config.sandbox.descriptorUrl,
+    jwksUri: config.sandbox.oidc.jwksUri,
+    discoveryUrl: config.sandbox.oidc.discoveryUrl,
   };
   next();
 });
@@ -119,20 +123,21 @@ app.use('/register', registerRouter);
 
 // Public pages. Signed-out visitors land on the product page; signed-in users get the dashboard.
 const landing = (req, res) => res.render('pages/landing', {
-  title: 'Test Keycloak SAML SSO before you ship',
-  description: 'Self-service Keycloak SAML sandbox for developers. Register a SAML client or import SP metadata, sign in as a test user, and inspect signatures, attributes and the raw response.',
+  title: 'Test Keycloak SAML and OIDC SSO before you ship',
+  description: 'Self-service Keycloak sandbox for SAML and OpenID Connect. Register a SAML or OIDC client, sign in as a test user, and inspect signatures, attributes, ID tokens and claims.',
+  keywords: content.keywords,
   fullBleed: true,
 });
 app.get('/guide', landing);
 app.get('/troubleshooting', (req, res) => res.render('pages/troubleshooting/index', {
-  title: 'Keycloak SAML errors and how to fix them',
-  description: 'Fixes for the most common Keycloak SAML errors: invalid requester, invalid redirect uri, audience check failed, signature validation failed and missing attributes.',
+  title: 'Keycloak SAML and OIDC errors and how to fix them',
+  description: 'Fixes for common Keycloak SAML and OpenID Connect errors: invalid requester, invalid redirect_uri, invalid_client, missing code_challenge_method, invalid_grant, audience and signature failures.',
 }));
 app.get('/troubleshooting/:slug', (req, res) => {
   const problem = content.findProblem(req.params.slug);
   if (!problem) return sendError(req, res, 404, 'Page not found.');
   res.render('pages/troubleshooting/problem', {
-    title: `${problem.q.replace(/[“”]/g, '')}: Keycloak SAML fix`,
+    title: `${problem.q.replace(/[“”]/g, '')}: Keycloak ${problem.protocol} fix`,
     description: problem.a,
     problem,
     baseUrl: req.siteUrl,

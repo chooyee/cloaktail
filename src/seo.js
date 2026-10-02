@@ -5,7 +5,7 @@ import * as content from './content.js';
 
 // The public pages search engines may index; everything else is noindex (see app.js).
 export const indexedPaths = ({ registrationEnabled = config.registration.enabled } = {}) => [
-  '/', '/troubleshooting', ...content.problems.map((p) => `/troubleshooting/${p.slug}`), '/tools/decode', '/disclaimer',
+  '/', '/troubleshooting', ...content.problems.map((p) => `/troubleshooting/${p.slug}`), '/tools/decode', '/tools/decode/jwt', '/disclaimer',
   ...(registrationEnabled ? ['/register'] : []),
 ];
 
@@ -25,6 +25,7 @@ export const robotsText = ({ baseUrl = config.baseUrl } = {}) => [
   'Disallow: /admin',
   'Disallow: /auth/',
   'Disallow: /saml/',
+  'Disallow: /oidc/',
   '',
   `Sitemap: ${baseUrl}/sitemap.xml`,
   '',

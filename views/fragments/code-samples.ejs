@@ -1,0 +1,47 @@
+<%#
+  Tabbed, syntax-highlighted code window. Expects:
+    id       unique prefix for the tab/panel ids on the page
+    samples  [{ lang, label, install?, filename?, language, code } | { lang, label, install?, files: [{ filename, language, code }] }]
+               lang      stable key ('node', 'python', 'java', 'csharp'); the viewer's last pick is remembered across pages
+               language  highlight.js language ('javascript', 'python', 'java', 'csharp', 'xml', 'yaml', 'bash', …)
+               install   optional shell command shown above the code
+               files     several files for one language (e.g. build file, config, code), shown one after another
+  With a single sample the tab bar becomes a plain label.
+%>
+<div class="code-window min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-sm" data-tabs>
+  <div class="flex items-center gap-2 border-b border-zinc-800 pl-2 pr-3">
+    <% if (samples.length > 1) { %>
+      <div role="tablist" aria-label="Language" class="flex min-w-0 gap-1 overflow-x-auto text-xs">
+        <% samples.forEach((s, i) => { %>
+          <button type="button" role="tab" id="<%= id %>-tab-<%= s.lang %>" aria-controls="<%= id %>-panel-<%= s.lang %>"
+                  aria-selected="<%= i === 0 %>" tabindex="<%= i === 0 ? 0 : -1 %>" data-lang="<%= s.lang %>"
+                  class="shrink-0 border-b-2 border-transparent px-3 py-2.5 font-medium text-zinc-400 hover:text-zinc-100 aria-selected:border-emerald-400 aria-selected:text-zinc-100"><%= s.label %></button>
+        <% }) %>
+      </div>
+    <% } else { %>
+      <span class="border-b-2 border-emerald-400 px-3 py-2.5 text-xs font-medium"><%= samples[0].label %></span>
+    <% } %>
+  </div>
+  <% samples.forEach((s, i) => {
+       const files = s.files || [{ filename: s.filename, language: s.language, code: s.code }]; %>
+    <div <%- samples.length > 1 ? `role="tabpanel" id="${id}-panel-${s.lang}" aria-labelledby="${id}-tab-${s.lang}"` : '' %> <%= i === 0 ? '' : 'hidden' %>>
+      <% if (s.install) { %>
+        <div class="flex items-center gap-2 border-b border-zinc-800/70 px-4 py-2 font-mono text-xs">
+          <span class="select-none text-zinc-500" aria-hidden="true">$</span>
+          <code class="min-w-0 flex-1 overflow-x-auto whitespace-pre text-zinc-300"><%= s.install %></code>
+          <button type="button" class="shrink-0 rounded-md px-2 py-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" data-copy="<%= s.install %>">Copy</button>
+        </div>
+      <% } %>
+      <% files.forEach((f, n) => { %>
+        <div class="flex items-center gap-2 border-b border-zinc-800/70 bg-zinc-900/60 px-4 py-1.5 <%= n > 0 ? 'border-t' : '' %>">
+          <span class="min-w-0 truncate font-mono text-xs text-zinc-400"><%= f.filename || '' %></span>
+          <button type="button" class="ml-auto shrink-0 rounded-md px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" data-copy="<%= f.code %>">Copy</button>
+        </div>
+        <div class="flex overflow-x-auto font-mono text-[13px] leading-6">
+          <pre class="sticky left-0 select-none border-r border-zinc-800/70 bg-zinc-950 py-4 pl-4 pr-3 text-right text-zinc-600" aria-hidden="true"><%= Array.from({ length: f.code.split('\n').length }, (_, k) => k + 1).join('\n') %></pre>
+          <pre class="flex-1 py-4 pl-4 pr-6"><code class="hljs language-<%= f.language %>"><%- highlight(f.code, f.language) %></code></pre>
+        </div>
+      <% }) %>
+    </div>
+  <% }) %>
+</div>

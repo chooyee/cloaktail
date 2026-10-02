@@ -1,0 +1,104 @@
+<%- include('../../partials/header') %>
+<% const r = run.result, d = r.details, t = d.tokenResponse; %>
+<%# Pretty JSON with a copy button. Expects a value (or null) and an empty-state text. %>
+<% function json(value, empty) { %>
+  <% if (value) { const text = JSON.stringify(value, null, 2); %>
+    <div class="relative">
+      <pre class="max-h-[32rem] overflow-auto rounded-lg bg-muted p-4 text-xs"><code><%= text %></code></pre>
+      <button type="button" class="btn absolute right-4 top-2" data-variant="outline" data-size="xs" data-copy="<%= text %>">Copy</button>
+    </div>
+  <% } else { %>
+    <p class="text-sm text-muted-foreground"><%= empty %></p>
+  <% } %>
+<% } %>
+<%# Readable times for the standard timestamp claims. %>
+<% const when = (s) => (typeof s === 'number' ? new Date(s * 1000).toISOString().replace('.000Z', 'Z') : '—'); %>
+<a href="/apps/<%= app.id %>" class="text-sm text-muted-foreground hover:underline">← <%= app.name %></a>
+<div class="mt-2 flex flex-wrap items-center justify-between gap-4">
+  <div>
+    <div class="flex items-center gap-3">
+      <h1 class="text-2xl font-semibold">Test result</h1>
+      <span class="badge" data-variant="<%= run.ok ? 'outline' : 'destructive' %>"><%= run.ok ? 'Passed' : 'Failed' %></span>
+    </div>
+    <p class="mt-1 text-sm text-muted-foreground">
+      <%= new Date(run.created_at + 'Z').toLocaleString() %> · started by <%= r.startedBy %> · <%= run.summary %>
+    </p>
+  </div>
+  <form method="post" action="/apps/<%= app.id %>/test">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <button type="submit" class="btn">Run again</button>
+  </form>
+</div>
+
+<div class="mt-6 grid gap-6 lg:grid-cols-2">
+  <div class="card">
+    <header><h2>Checks</h2></header>
+    <section>
+      <ul class="grid gap-3">
+        <% for (const c of r.checks) { %>
+          <li class="flex items-start gap-3">
+            <span class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-bold
+                         <%= c.ok === true ? 'bg-primary text-primary-foreground' : c.ok === false ? 'bg-destructive text-white' : 'border text-muted-foreground' %>"
+                  aria-label="<%= c.ok === true ? 'passed' : c.ok === false ? 'failed' : 'info' %>"><%= c.ok === true ? '✓' : c.ok === false ? '✕' : 'i' %></span>
+            <div class="min-w-0">
+              <p class="text-sm font-medium"><%= c.label %></p>
+              <p class="break-words text-sm text-muted-foreground"><%= c.detail %></p>
+            </div>
+          </li>
+        <% } %>
+      </ul>
+    </section>
+  </div>
+
+  <div class="card">
+    <header><h2>Subject and session</h2></header>
+    <section>
+      <% const c = d.idToken?.claims || {}; %>
+      <dl class="grid grid-cols-[9rem_1fr] gap-x-4 gap-y-2 text-sm">
+        <dt class="text-muted-foreground">Subject (sub)</dt><dd class="break-all font-mono text-xs"><%= c.sub || '—' %></dd>
+        <dt class="text-muted-foreground">Username</dt><dd class="break-all font-mono text-xs"><%= c.preferred_username || '—' %></dd>
+        <dt class="text-muted-foreground">Issuer</dt><dd class="break-all font-mono text-xs"><%= c.iss || '—' %></dd>
+        <dt class="text-muted-foreground">Audience</dt><dd class="break-all font-mono text-xs"><%= [].concat(c.aud ?? []).join(', ') || '—' %></dd>
+        <dt class="text-muted-foreground">Issued / expires</dt><dd class="font-mono text-xs"><%= when(c.iat) %> → <%= when(c.exp) %></dd>
+        <dt class="text-muted-foreground">Authenticated at</dt><dd class="font-mono text-xs"><%= when(c.auth_time) %></dd>
+        <dt class="text-muted-foreground">Session</dt><dd class="break-all font-mono text-xs"><%= c.sid || d.authResponse?.sessionState || '—' %></dd>
+        <% if (t) { %>
+          <dt class="text-muted-foreground">Granted scope</dt><dd class="break-all font-mono text-xs"><%= t.scope || '—' %></dd>
+          <dt class="text-muted-foreground">Access token</dt><dd><%= t.tokenType || '?' %>, expires in <%= t.expiresIn ?? '?' %> s</dd>
+          <dt class="text-muted-foreground">Refresh token</dt><dd><%= t.refreshToken ? `Issued, expires in ${t.refreshExpiresIn ?? '?'} s` : 'Not issued' %></dd>
+        <% } %>
+      </dl>
+    </section>
+  </div>
+
+  <div class="card lg:col-span-2">
+    <header>
+      <h2>ID token claims</h2>
+      <p>What your app learns about the user from the ID token. Header: <code><%= d.idToken ? JSON.stringify(d.idToken.header) : '—' %></code></p>
+    </header>
+    <section><% json(d.idToken?.claims, 'No ID token was received.') %></section>
+  </div>
+
+  <div class="card lg:col-span-2">
+    <header>
+      <h2>Userinfo response</h2>
+      <p>From the userinfo endpoint, called with the access token.</p>
+    </header>
+    <section><% json(d.userinfo, 'No userinfo response.') %></section>
+  </div>
+
+  <div class="card lg:col-span-2">
+    <header>
+      <h2>Access token claims</h2>
+      <p>Meant for your APIs, not for your app to read; shown to check audiences, roles and scopes.
+        <% if (d.accessToken) { %>Header: <code><%= JSON.stringify(d.accessToken.header) %></code><% } %></p>
+    </header>
+    <section><% json(d.accessToken?.claims, 'No access token, or it is not a JWT.') %></section>
+  </div>
+
+  <p class="text-xs text-muted-foreground lg:col-span-2">
+    The portal keeps only the decoded claims, never the tokens themselves. To inspect a token your own app received, use the
+    <a href="/tools/decode/jwt" class="underline underline-offset-4">JWT decoder</a>.
+  </p>
+</div>
+<%- include('../../partials/footer') %>

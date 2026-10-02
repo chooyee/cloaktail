@@ -13,18 +13,21 @@ A self-service portal where developers register, create SAML clients in Keycloak
 
 - **Developer sign-up:** the portal's own sign-up form creates the account in the portal realm (`ep`). New accounts get the `developer` role.
 - **Sign-in:** through Keycloak with SAML 2.0.
-- **Applications:** a developer registers their SAML service provider (SP) by filling a form or importing SP metadata XML. The portal creates a SAML client for it in a separate **sandbox realm** (`ep-dev`). Developers see and change only their own applications.
-- **Connection details:** each application page shows:
+- **Applications:** a developer registers a **SAML** service provider (SP), by filling a form or importing SP metadata XML, or an **OpenID Connect** client (confidential or public). The portal creates the client in a separate **sandbox realm** (`ep-dev`). Developers see and change only their own applications.
+- **Connection details:** each SAML application page shows:
   - The IdP metadata URL, entity ID, SSO/SLO URLs and signing certificate
   - The IdP-initiated login link
   - A ready-to-copy passport-saml config
-- **Test connection:** the portal acts as the developer's SP for one login. It sends an AuthnRequest with their entity ID and the portal's own ACS, the developer signs in as a sandbox test user, and the portal shows:
-  - Pass/fail checks for status, issuer, destination, audience, signatures and expected attributes
-  - The Name ID and session index
-  - Every attribute received
-  - The raw XML
 
-  The last 10 runs are kept per application.
+  Each OIDC application page shows:
+  - The issuer, discovery document and every endpoint (authorization, token, userinfo, JWKS, end session)
+  - The client ID and, for confidential clients, the client secret (only to those who may edit the app), with **Regenerate secret**
+  - A ready-to-copy openid-client config
+- **Test connection:** the portal acts as the developer's app for one login, and the developer signs in as a sandbox test user.
+  - **SAML:** it sends an AuthnRequest with their entity ID and the portal's own ACS (`/saml/test/acs`), then shows pass/fail checks for status, issuer, destination, audience, signatures and expected attributes, the Name ID and session index, every attribute received, and the raw XML.
+  - **OIDC:** it runs the authorization code flow with PKCE as their client, with the portal's own redirect URI (`/oidc/test/callback`), redeems the code (with the client secret for confidential clients) and calls userinfo. It shows pass/fail checks for the code exchange, the ID token signature (against the realm JWKS), issuer, audience, `azp`, expiry, nonce and `at_hash`, plus the decoded ID token, access token and userinfo claims. Only the decoded claims are stored, never the tokens.
+
+  The portal adds its own test ACS / redirect URI, on every domain of the profile, to each client, and hides it from the form. The last 10 runs are kept per application.
 - **Test users:** each developer manages a few accounts in the sandbox realm to sign in with during tests.
 - **Portal administration:** user management (in `ep`) and portal roles and permissions, as before.
 - **Admin console** at `/admin`: configures the Keycloak connection at runtime. Administrators are local accounts stored in the portal database, not Keycloak users, so the console still works when the Keycloak settings are wrong.
@@ -46,9 +49,9 @@ On first start there is no administrator and no Keycloak connection:
 
 1. Open `/admin`. It leads to the setup page, which asks for the **setup token** printed in the server log (`docker logs <container>` in Docker). Or set `ADMIN_BOOTSTRAP_USERNAME` and `ADMIN_BOOTSTRAP_PASSWORD` (see below).
 2. In **Keycloak profiles**, create a profile (or import one), run the checks, and give it its domains (for example `BASE_URL`).
-3. In **Signing certificate**, generate the portal's SAML signing certificate and import it into the portal SAML client in Keycloak.
+3. On the profile's page, open **SAML signing certificate**, generate the profile's certificate and import it into the portal SAML client of that profile's Keycloak.
 
-Until a profile serves the domain, every page except `/admin` answers 421; until a signing certificate exists, Keycloak sign-in shows "not set up yet".
+Until a profile serves the domain, every page except `/admin` answers 421; until the profile has a signing certificate, Keycloak sign-in shows "not set up yet".
 
 ## Admin console
 
@@ -59,17 +62,18 @@ Until a profile serves the domain, every page except `/admin` answers 421; until
   - **Domains:** each profile serves the domains listed on its page (e.g. `https://portal.example.com`), so several Keycloaks can be served side by side. A request uses the profile mapped to its scheme and host; any other host gets `421 Misdirected Request`, except that `/admin` always answers on `BASE_URL`. Changes apply at once, without a restart: the SAML strategies are rebuilt.
   - **Separate data:** users, roles and role assignments, applications and test users belong to one profile, and are only visible on its domains. A Keycloak sign-in is only valid on the domains of the profile it came from. Each new profile starts with the default roles.
   - **Portal SAML client:** for every domain, add `<domain>/*` to *Valid redirect URIs* and *Valid post logout redirect URIs*, and leave *Master SAML Processing URL* empty (when set, Keycloak posts every response to that one URL).
-  - **Run checks** tests any profile, in use or not: both realms, the signing certificate, and both service accounts with their permissions. Test a profile before you give it domains.
+  - **Connection checks** test any profile, in use or not, even before it is saved: each section of the profile form (**Keycloak server**, **Portal realm**, **Sandbox realm**) has a **Check connection** button, and **Check all connections** runs them all. They cover the server, both realms, the portal realm's signing certificate, the sandbox's OpenID Connect discovery document and keys, and both service accounts with their permissions. The checks use the values in the form, saved or not; an empty secret field uses the stored secret. Test a profile before you give it domains.
   - A profile that serves domains can't be deleted. Deleting one also deletes its users, roles and application and test user records from CloakTail; Keycloak keeps its realms.
   - **Duplicate** copies a profile, including its secrets but not its domains, as a starting point for another environment.
   - Client secrets are encrypted at rest (AES-256-GCM, key from `SETTINGS_KEY` or else `SESSION_SECRET`) and are never sent back to the browser.
   - **Upgrading** from a single active profile: the active profile serves `BASE_URL` and keeps every existing user, role, application and test user.
-- **Signing certificate** (`/admin/signing`). CloakTail signs its SAML login and logout requests with its own key pair, so Keycloak can keep *Client signature required* on.
+- **SAML signing certificate**, one per profile (`/admin/keycloak/profiles/<id>/signing`, linked from the profile's page and the *Signing* column of the list). On a profile's domains, CloakTail signs its SAML login and logout requests with that profile's key pair, so its Keycloak can keep *Client signature required* on. Each profile, and so each Keycloak, has its own key.
   - **Generate** creates an RSA key pair (2048, 3072 or 4096 bit) and a self-signed certificate (1 to 10 years). You can also **import** an existing PEM pair; it must be RSA, at least 2048 bits, with an unencrypted key that matches the certificate.
-  - The key pair is stored in the database (table `sp_keys`), with the private key encrypted like the profile secrets. The private key is never shown or downloadable. The certificate can be copied or downloaded, and is also published in `/saml/metadata`.
-  - **Rotation:** while a certificate is active, a new one is *pending*. Import the pending certificate into Keycloak, then **Activate** it; the old key is deleted. Sign-ins fail between those two steps, so do them together.
-  - The page and the server log warn when the certificate expires within 30 days.
-  - **Upgrading:** an existing `certs/sp-key.pem` + `certs/sp-cert.pem` pair (from the old `npm run gen:sp-cert`) is moved into the database once, on the first start. After that the files are not read.
+  - The key pairs are stored in the database (table `sp_keys`, by `profile_id`), with the private key encrypted like the profile secrets. The private key is never shown or downloadable. The certificate can be copied or downloaded, and is also published in `/saml/metadata` on the profile's domains.
+  - **Rotation:** while a profile's certificate is active, a new one is *pending*. Import the pending certificate into that profile's portal SAML client, then **Activate** it; the old key is deleted. Sign-ins on its domains fail between those two steps, so do them together.
+  - The page and the server log warn when a certificate of a profile in use expires within 30 days.
+  - Profile exports, imports and **Duplicate** don't include the signing key: give the new profile its own.
+  - **Upgrading** from one shared certificate: every existing profile starts with a copy of it, so sign-in keeps working. Rotate each profile's key when convenient. An existing `certs/sp-key.pem` + `certs/sp-cert.pem` pair (from the old `npm run gen:sp-cert`) is moved into the database once, for every profile, on the first start with a profile and no stored key. After that the files are not read.
 - **Export and import** profiles as JSON, to back them up or copy them between CloakTail instances.
   - Export one profile from its page, or all of them from the list. Client secrets are left out unless you tick *Include client secrets*; they are then in plain text, so store the file safely.
   - Import reads the file in the browser and validates every profile first. Nothing is imported if any profile is invalid. Imported profiles serve no domains until you add them; overwriting a profile keeps its domains. Exports never contain domains.
@@ -112,7 +116,7 @@ Still in `.env`: `BASE_URL`, `SESSION_SECRET` / `SETTINGS_KEY`, sign-up options 
 |---|---|---|---|
 | `ep` | `samlclient` | SAML | Signs users in to the portal |
 | `ep` | `samlclient-admin` | OIDC, service account | Developer sign-up and admin user management |
-| `ep-dev` | `devportal-admin` | OIDC, service account | Creates developers' SAML clients and test users |
+| `ep-dev` | `devportal-admin` | OIDC, service account | Creates developers' SAML and OIDC clients and test users |
 
 ### Realm `ep`: SAML client `samlclient`
 
@@ -147,7 +151,7 @@ After saving, open the client:
   - Algorithm: `RSA_SHA256`
 - **Keys**
   - Client signature required: **On**
-  - **Import key:** Archive format **Certificate PEM**, then upload the certificate from the admin console (**Signing certificate → Download**). The portal signs its login and logout requests with the matching private key.
+  - **Import key:** Archive format **Certificate PEM**, then upload the certificate from the admin console (**Keycloak profiles → your profile → SAML signing certificate → Download**). The portal signs its login and logout requests with the matching private key.
 - **Advanced**
   - Assertion Consumer Service POST Binding URL: `http://localhost:3000/saml/acs`
   - Logout Service POST Binding URL: `http://localhost:3000/saml/logout/callback`

@@ -3,10 +3,10 @@
   const err = (name) => (field === name ? error : null);
   const generalError = error && !field ? error : null;
   const perks = [
-    `Up to ${maxApps} SAML clients in the ${sandboxRealm} sandbox`,
+    `Up to ${maxApps} SAML or OIDC clients in the ${sandboxRealm} sandbox`,
     `Up to ${maxTestUsers} test users to sign in with`,
-    'One-click test login with the full SAML response',
-    'Certificate generator for signing and encryption',
+    'One-click test login with the full SAML response or OIDC tokens',
+    'SAML and JWT decoders, and a certificate generator',
   ];
   const check = '<svg class="mt-0.5 size-4 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M16.7 5.3a1 1 0 0 1 0 1.4l-8 8a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.4L8 12.6l7.3-7.3a1 1 0 0 1 1.4 0Z" clip-rule="evenodd"/></svg>';
 %>
@@ -16,7 +16,7 @@
   <section class="lg:pt-6">
     <p class="text-sm font-medium text-muted-foreground">Developer account</p>
     <h1 class="mt-2 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Create your CloakTail account</h1>
-    <p class="mt-3 max-w-md text-muted-foreground text-pretty">Get your own sandbox for building and testing SAML single sign-on against Keycloak.</p>
+    <p class="mt-3 max-w-md text-muted-foreground text-pretty">Get your own sandbox for building and testing SAML and OpenID Connect single sign-on against Keycloak.</p>
 
     <div class="mt-10 hidden lg:block">
       <h2 class="text-sm font-semibold">What you get</h2>

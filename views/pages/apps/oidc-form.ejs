@@ -1,0 +1,113 @@
+<%- include('../../partials/header') %>
+<% const action = isNew ? '/apps' : `/apps/${app.id}`; %>
+<a href="<%= isNew ? '/apps' : `/apps/${app.id}` %>" class="text-sm text-muted-foreground hover:underline">← <%= isNew ? 'Applications' : app.name %></a>
+<h1 class="mt-2 text-2xl font-semibold"><%= isNew ? 'Register application' : 'Edit application' %></h1>
+<p class="mt-1 text-muted-foreground">Creates an OpenID Connect client for your app in the <code><%= sandboxRealm %></code> sandbox realm.</p>
+<% if (isNew) { %><%- include('../../fragments/protocol-tabs', { protocol: 'oidc' }) %><% } %>
+
+<div id="app-page" class="mt-6 grid gap-6 lg:grid-cols-[1fr_22rem]">
+  <% if (isNew && quotaReached) { %>
+    <div class="alert lg:col-span-2" data-variant="destructive" role="alert">
+      <section>You have reached the limit of <%= maxApps %> applications. Delete one before registering another.</section>
+    </div>
+  <% } %>
+
+  <form class="card" method="post" action="<%= action %>" hx-post="<%= action %>"
+        hx-target="#app-page" hx-select="#app-page" hx-swap="outerHTML">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <input type="hidden" name="protocol" value="oidc">
+    <section class="grid gap-6">
+      <%- include('../../fragments/form-status') %>
+
+      <fieldset class="fieldset gap-4">
+        <legend class="text-sm font-semibold">Application</legend>
+        <div class="field">
+          <label for="name">Name</label>
+          <input id="name" name="name" type="text" required maxlength="80" value="<%= values.name %>" placeholder="My Billing App">
+        </div>
+        <div class="field">
+          <label for="clientId">Client ID</label>
+          <input id="clientId" name="clientId" type="text" required value="<%= values.clientId %>"
+                 placeholder="my-billing-app" autocomplete="off" spellcheck="false" <%= isNew ? '' : 'disabled' %>>
+          <p><%= isNew ? 'Your app sends it as client_id. Becomes the Keycloak client ID.' : 'The client ID can’t be changed. Register a new application to use a different one.' %></p>
+        </div>
+        <div class="field">
+          <label for="clientType">Client type</label>
+          <select id="clientType" name="clientType">
+            <% for (const [value, label] of Object.entries(CLIENT_TYPES)) { %>
+              <option value="<%= value %>" <%= values.clientType === value ? 'selected' : '' %>><%= label %></option>
+            <% } %>
+          </select>
+          <p>Confidential clients authenticate with a client secret, shown on the application page. Public clients can’t keep a secret, so they rely on PKCE.</p>
+        </div>
+      </fieldset>
+
+      <fieldset class="fieldset gap-4">
+        <legend class="text-sm font-semibold">URLs</legend>
+        <div class="field">
+          <label for="redirectUris">Redirect URIs</label>
+          <textarea id="redirectUris" name="redirectUris" rows="3" required class="font-mono text-xs" spellcheck="false"
+                    placeholder="https://myapp.example.com/auth/callback"><%= values.redirectUris.join('\n') %></textarea>
+          <p>One per line. Where Keycloak sends the user back with the authorization code. A trailing <code>/*</code> is allowed while developing, e.g. <code>http://localhost:5173/*</code>.</p>
+        </div>
+        <div class="field">
+          <label for="postLogoutRedirectUris">Post-logout redirect URIs <span class="text-muted-foreground">(optional)</span></label>
+          <textarea id="postLogoutRedirectUris" name="postLogoutRedirectUris" rows="2" class="font-mono text-xs" spellcheck="false"
+                    placeholder="https://myapp.example.com/"><%= values.postLogoutRedirectUris.join('\n') %></textarea>
+          <p>Allowed <code>post_logout_redirect_uri</code> values for RP-initiated logout.</p>
+        </div>
+        <div class="field">
+          <label for="webOrigins">Web origins <span class="text-muted-foreground">(optional)</span></label>
+          <textarea id="webOrigins" name="webOrigins" rows="2" class="font-mono text-xs" spellcheck="false"
+                    placeholder="+"><%= values.webOrigins.join('\n') %></textarea>
+          <p>Origins allowed to call Keycloak from the browser (CORS), for single-page apps. <code>+</code> allows the origins of the redirect URIs.</p>
+        </div>
+        <div class="field">
+          <label for="homeUrl">Home URL <span class="text-muted-foreground">(optional)</span></label>
+          <input id="homeUrl" name="homeUrl" type="url" value="<%= values.homeUrl %>" placeholder="https://myapp.example.com/">
+        </div>
+      </fieldset>
+
+      <fieldset class="fieldset gap-4">
+        <legend class="text-sm font-semibold">Security</legend>
+        <div class="field" data-orientation="horizontal">
+          <input type="checkbox" role="switch" id="requirePkce" name="requirePkce" <%= values.requirePkce ? 'checked' : '' %>>
+          <section>
+            <label for="requirePkce">Require PKCE (S256)</label>
+            <p>Keycloak rejects authorization requests without a <code>code_challenge</code>. Recommended for every client, and essential for public ones.</p>
+          </section>
+        </div>
+        <div class="field" data-orientation="horizontal">
+          <input type="checkbox" role="switch" id="serviceAccount" name="serviceAccount" <%= values.serviceAccount ? 'checked' : '' %>>
+          <section>
+            <label for="serviceAccount">Service account (client credentials grant)</label>
+            <p>Lets a confidential client get tokens for itself, without a user. Ignored for public clients.</p>
+          </section>
+        </div>
+      </fieldset>
+    </section>
+    <footer class="flex justify-end gap-2">
+      <a href="<%= isNew ? '/apps' : `/apps/${app.id}` %>" class="btn" data-variant="outline">Cancel</a>
+      <button type="submit" class="btn" <%= isNew && quotaReached ? 'disabled' : '' %>><%= isNew ? 'Register application' : 'Save changes' %></button>
+    </footer>
+  </form>
+
+  <div class="grid gap-6 self-start">
+    <div class="card">
+      <header>
+        <h2>Portal test redirect URI</h2>
+        <p>The portal also adds this URL to your client’s redirect URIs so “Test connection” can receive the authorization code.</p>
+      </header>
+      <section>
+        <code class="block break-all rounded bg-muted p-2 text-xs"><%= testUrl %></code>
+      </section>
+    </div>
+    <div class="card">
+      <header>
+        <h2>Claims</h2>
+        <p>Tokens carry the claims of the realm’s default client scopes: <code>profile</code> (name, preferred_username…), <code>email</code> and <code>roles</code>. The test login shows exactly what your app will receive.</p>
+      </header>
+    </div>
+  </div>
+</div>
+<%- include('../../partials/footer') %>

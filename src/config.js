@@ -63,6 +63,20 @@ export const config = {
   // request, so always read them at call time rather than copying them at import.
 };
 
+// Keycloak's fixed OIDC endpoint paths under a realm URL (the same as its discovery document lists).
+function oidcEndpoints(realmUrl) {
+  const at = (path) => (realmUrl ? `${realmUrl}${path}` : '');
+  return {
+    issuer: realmUrl,
+    discoveryUrl: at('/.well-known/openid-configuration'),
+    authorizationEndpoint: at('/protocol/openid-connect/auth'),
+    tokenEndpoint: at('/protocol/openid-connect/token'),
+    userinfoEndpoint: at('/protocol/openid-connect/userinfo'),
+    jwksUri: at('/protocol/openid-connect/certs'),
+    endSessionEndpoint: at('/protocol/openid-connect/logout'),
+  };
+}
+
 // Everything the app derives from a Keycloak profile's settings. With no profile (fresh install)
 // every value is empty and `configured` is false.
 export function deriveKeycloakConfig(s) {
@@ -91,6 +105,8 @@ export function deriveKeycloakConfig(s) {
       adminClientSecret: s?.sandboxAdminClientSecret || '',
       samlEndpoint: configured ? `${realmBase(sandboxRealm)}/protocol/saml` : '',
       descriptorUrl: configured ? `${realmBase(sandboxRealm)}/protocol/saml/descriptor` : '',
+      // OpenID Connect provider endpoints of the sandbox realm (issuer = realmUrl).
+      oidc: oidcEndpoints(configured ? realmBase(sandboxRealm) : ''),
     },
     saml: {
       issuer: s?.samlIssuer || '',
@@ -119,6 +135,7 @@ export function currentProfileId() {
 }
 
 export const testAcsUrlFor = (siteUrl) => `${siteUrl}/saml/test/acs`;
+export const testOidcRedirectUriFor = (siteUrl) => `${siteUrl}/oidc/test/callback`;
 
 // The portal's own SAML endpoints on one domain.
 export const samlUrlsFor = (siteUrl) => ({
@@ -153,6 +170,9 @@ Object.defineProperties(config, {
         // accepts the test ACS of all the profile's domains.
         testAcsUrl: t ? testAcsUrlFor(t.siteUrl) : '',
         testAcsUrls: t ? t.domains.map(testAcsUrlFor) : [],
+        // The same for OIDC clients: the portal's redirect URI on every domain of the profile.
+        testOidcRedirectUri: t ? testOidcRedirectUriFor(t.siteUrl) : '',
+        testOidcRedirectUris: t ? t.domains.map(testOidcRedirectUriFor) : [],
       };
     },
   },

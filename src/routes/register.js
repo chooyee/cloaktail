@@ -36,7 +36,7 @@ registerRouter.use((req, res, next) => {
 const render = (res, values, error = null, field = null) =>
   res.status(error ? 422 : 200).render('pages/register', {
     title: 'Create your account',
-    description: 'Create a free CloakTail developer account to get your own Keycloak SAML sandbox: SAML clients, test users and verified test logins.',
+    description: 'Create a free CloakTail developer account to get your own Keycloak sandbox: SAML and OpenID Connect clients, test users and verified test logins.',
     values, error, field,
   });
 

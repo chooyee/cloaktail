@@ -15,7 +15,7 @@ export const PERMISSIONS = {
   'users.assign_roles': 'Assign app roles to users',
   'roles.view': 'View roles',
   'roles.manage': 'Create, edit and delete roles',
-  'apps.own': 'Register own SAML applications and test users in the sandbox',
+  'apps.own': 'Register own SAML and OIDC applications and test users in the sandbox',
   'apps.view_all': "View every developer's applications",
   'apps.manage_all': "Edit and delete any developer's applications",
 };
@@ -32,7 +32,7 @@ const SEED_ROLES = [
     ],
   },
   { name: 'viewer', description: 'Read-only access', system: 0, permissions: ['dashboard.view'] },
-  { name: 'developer', description: 'Self-service SAML applications in the sandbox', system: 0, permissions: ['dashboard.view', 'apps.own'] },
+  { name: 'developer', description: 'Self-service SAML and OIDC applications in the sandbox', system: 0, permissions: ['dashboard.view', 'apps.own'] },
 ];
 
 const pool = new pg.Pool({ ...config.db, admin: undefined });
@@ -162,8 +162,46 @@ async function migrateToPerProfileData() {
   console.log('Users, roles and sandbox records now belong to a Keycloak profile; the existing ones went to the active profile.');
 }
 
+// Before each Keycloak profile had its own SAML signing key, one key pair served them all. Every
+// existing profile gets a copy of it, so sign-in keeps working (each Keycloak already trusts it).
+// Runs before ensureSchema, whose new index needs the profile_id column.
+async function migrateSpKeysToProfiles() {
+  const { legacy } = await one(`SELECT to_regclass('sp_keys') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema() AND table_name = 'sp_keys' AND column_name = 'profile_id') AS legacy`);
+  if (!legacy) return;
+  const copied = await withSchemaClient('adding sp_keys.profile_id', async (client) => {
+    const q = async (sql) => (await client.query(sql)).rows;
+    await q('ALTER TABLE sp_keys ADD COLUMN profile_id INTEGER REFERENCES keycloak_profiles(id) ON DELETE CASCADE');
+    await q('DROP INDEX IF EXISTS sp_keys_one_per_status');
+    const [{ keys, profiles }] = await q('SELECT (SELECT COUNT(*)::int FROM sp_keys) AS keys, (SELECT COUNT(*)::int FROM keycloak_profiles) AS profiles');
+    await q(`INSERT INTO sp_keys (profile_id, status, certificate, private_key, created_by, created_at, activated_at)
+      SELECT p.id, k.status, k.certificate, k.private_key, k.created_by, k.created_at, k.activated_at
+      FROM sp_keys k CROSS JOIN keycloak_profiles p WHERE k.profile_id IS NULL`);
+    await q('DELETE FROM sp_keys WHERE profile_id IS NULL');
+    await q('ALTER TABLE sp_keys ALTER COLUMN profile_id SET NOT NULL');
+    await q('CREATE UNIQUE INDEX sp_keys_one_per_profile_status ON sp_keys (profile_id, status)');
+    return { keys, profiles };
+  });
+  if (copied.keys && copied.profiles) {
+    console.log(`Each Keycloak profile now has its own SAML signing key; all ${copied.profiles} profiles start with a copy of the shared one.`);
+  } else if (copied.keys) {
+    console.warn('Each Keycloak profile now has its own SAML signing key. The shared key was dropped, as there was no profile to give it to.');
+  }
+}
+
+// Applications were all SAML before OIDC clients could be registered.
+async function migrateAppProtocol() {
+  const done = await one("SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'apps' AND column_name = 'protocol'");
+  if (done) return;
+  await withSchemaClient('adding apps.protocol', (client) => client.query(
+    "ALTER TABLE apps ADD COLUMN protocol TEXT NOT NULL DEFAULT 'saml' CHECK (protocol IN ('saml', 'oidc'))",
+  ));
+}
+
+await migrateSpKeysToProfiles();
 await ensureSchema();
 await migrateToPerProfileData();
+await migrateAppProtocol();
 
 // Permissions are global (defined in code); roles are per profile (seedRoles).
 await transaction(async () => {
@@ -332,10 +370,10 @@ export const countApps = async (owner) =>
 export const getApp = async (id) =>
   (validId(id) ? one('SELECT * FROM apps WHERE id = $1 AND profile_id = $2', [id, currentProfileId()]) : null);
 
-export async function insertApp({ owner, kcId, clientId, name }) {
+export async function insertApp({ protocol, owner, kcId, clientId, name }) {
   return (await one(
-    'INSERT INTO apps (profile_id, owner, kc_id, client_id, name) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-    [currentProfileId(), owner, kcId, clientId, name],
+    'INSERT INTO apps (profile_id, protocol, owner, kc_id, client_id, name) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+    [currentProfileId(), protocol, owner, kcId, clientId, name],
   )).id;
 }
 
@@ -434,28 +472,32 @@ export const countProfileData = async (profileId) => one(`
     (SELECT COUNT(*)::int FROM test_users WHERE profile_id = $1) AS test_users
 `, [profileId]);
 
-// ---------- SAML signing keys (rows as stored; spKeys.js decrypts) ----------
+// ---------- SAML signing keys, per Keycloak profile (rows as stored; spKeys.js decrypts) ----------
+// Managed from the admin console, outside any request's profile, so these take the profile id.
 
-export const getSpKeyRow = (status) => one('SELECT * FROM sp_keys WHERE status = $1', [status]);
+export const getSpKeyRow = (profileId, status) =>
+  one('SELECT * FROM sp_keys WHERE profile_id = $1 AND status = $2', [profileId, status]);
+export const listSpKeyRows = () => all('SELECT * FROM sp_keys ORDER BY profile_id, status');
 
-// Stores a key pair under `status`, replacing any existing key with that status.
-export const putSpKeyRow = (status, { certificate, privateKey, by }) => transaction(async () => {
-  await exec('DELETE FROM sp_keys WHERE status = $1', [status]);
+// Stores a key pair under `status`, replacing any key the profile has with that status.
+export const putSpKeyRow = (profileId, status, { certificate, privateKey, by }) => transaction(async () => {
+  await exec('DELETE FROM sp_keys WHERE profile_id = $1 AND status = $2', [profileId, status]);
   await exec(`
-    INSERT INTO sp_keys (status, certificate, private_key, created_by, activated_at)
-    VALUES ($1, $2, $3, $4, CASE WHEN $5 THEN ${NOW} END)
-  `, [status, certificate, privateKey, by, status === 'active']);
+    INSERT INTO sp_keys (profile_id, status, certificate, private_key, created_by, activated_at)
+    VALUES ($1, $2, $3, $4, $5, CASE WHEN $6 THEN ${NOW} END)
+  `, [profileId, status, certificate, privateKey, by, status === 'active']);
 });
 
-// The pending key replaces the active one, which is deleted.
-export const promotePendingSpKey = () => transaction(async () => {
-  if (!(await getSpKeyRow('pending'))) return false;
-  await exec("DELETE FROM sp_keys WHERE status = 'active'");
-  await exec(`UPDATE sp_keys SET status = 'active', activated_at = ${NOW} WHERE status = 'pending'`);
+// The profile's pending key replaces its active one, which is deleted.
+export const promotePendingSpKey = (profileId) => transaction(async () => {
+  if (!(await getSpKeyRow(profileId, 'pending'))) return false;
+  await exec("DELETE FROM sp_keys WHERE profile_id = $1 AND status = 'active'", [profileId]);
+  await exec(`UPDATE sp_keys SET status = 'active', activated_at = ${NOW} WHERE profile_id = $1 AND status = 'pending'`, [profileId]);
   return true;
 });
 
-export const deleteSpKeyRow = (status) => exec('DELETE FROM sp_keys WHERE status = $1', [status]);
+export const deleteSpKeyRow = (profileId, status) =>
+  exec('DELETE FROM sp_keys WHERE profile_id = $1 AND status = $2', [profileId, status]);
 
 // ---------- admin console accounts ----------
 

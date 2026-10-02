@@ -2,3 +2,36 @@
 @import "basecoat-css";
 
 @source "../views";
+
+/* Syntax highlighting for views/fragments/code-samples.ejs (highlight.js classes, dark code window). */
+.code-window .hljs-comment,
+.code-window .hljs-quote { color: #8b949e; font-style: italic; }
+.code-window .hljs-keyword,
+.code-window .hljs-selector-tag,
+.code-window .hljs-meta .hljs-keyword,
+.code-window .hljs-doctag { color: #ff7b72; }
+.code-window .hljs-string,
+.code-window .hljs-regexp,
+.code-window .hljs-meta .hljs-string { color: #a5d6ff; }
+.code-window .hljs-number,
+.code-window .hljs-literal,
+.code-window .hljs-variable.constant_,
+.code-window .hljs-attr,
+.code-window .hljs-attribute { color: #79c0ff; }
+.code-window .hljs-title,
+.code-window .hljs-title.function_,
+.code-window .hljs-title.class_,
+.code-window .hljs-section { color: #d2a8ff; }
+.code-window .hljs-built_in,
+.code-window .hljs-type,
+.code-window .hljs-symbol { color: #ffa657; }
+.code-window .hljs-name,
+.code-window .hljs-tag,
+.code-window .hljs-selector-id,
+.code-window .hljs-selector-class { color: #7ee787; }
+.code-window .hljs-meta,
+.code-window .hljs-params,
+.code-window .hljs-subst,
+.code-window .hljs-variable,
+.code-window .hljs-property { color: #e6edf3; }
+.code-window .hljs-variable.language_ { color: #ff7b72; }

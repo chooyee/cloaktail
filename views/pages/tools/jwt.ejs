@@ -1,0 +1,351 @@
+<%- include('../../partials/header') %>
+<h1 class="text-2xl font-semibold">JWT decoder</h1>
+<p class="mt-1 max-w-2xl text-muted-foreground">
+  Read an OpenID Connect ID token or access token: header, claims and readable times. Paste the token, an
+  <code>Authorization: Bearer</code> header, a redirect URL with <code>#id_token=…</code>, or a whole token response; every JWT in it is found.
+</p>
+<%- include('../../fragments/decoder-tabs', { current: 'jwt' }) %>
+
+<div class="alert mt-6" role="note">
+  <h2>Decoded in your browser</h2>
+  <section>
+    What you paste, including any key or secret, is never sent to the server. A valid access token lets anyone use it
+    until it expires, so paste sandbox tokens only. <a href="/disclaimer" class="underline underline-offset-4">Disclaimer</a>
+  </section>
+</div>
+
+<div class="mt-6 grid gap-6">
+  <form id="jwt-decode" class="card">
+    <header>
+      <h2>Token</h2>
+    </header>
+    <section class="grid gap-4">
+      <div class="field">
+        <label for="jwt-input">JWT, header, URL or token response</label>
+        <textarea id="jwt-input" rows="5" class="break-all font-mono text-xs" spellcheck="false" autocomplete="off"
+                  placeholder="eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI…"></textarea>
+      </div>
+      <p id="jwt-error" class="hidden text-sm text-destructive" role="alert"></p>
+    </section>
+    <footer class="flex justify-end gap-2">
+      <button type="button" class="btn" data-variant="outline" id="jwt-clear">Clear</button>
+      <button type="submit" class="btn">Decode</button>
+    </footer>
+  </form>
+
+  <div id="jwt-result" class="hidden grid gap-6">
+    <div id="jwt-picker" class="field hidden max-w-md">
+      <label for="jwt-select">Tokens found</label>
+      <select id="jwt-select"></select>
+    </div>
+
+    <div class="card min-w-0">
+      <header>
+        <h2 class="flex flex-wrap items-center gap-2"><span id="jwt-kind"></span> <span id="jwt-status" class="badge"></span></h2>
+        <p>Colours match the three parts: <span class="text-rose-600 dark:text-rose-400">header</span>.<span class="text-violet-600 dark:text-violet-400">payload</span>.<span class="text-sky-600 dark:text-sky-400">signature</span></p>
+      </header>
+      <section>
+        <p id="jwt-encoded" class="max-h-40 overflow-auto break-all rounded-lg bg-muted p-3 font-mono text-xs"></p>
+      </section>
+    </div>
+
+    <div class="grid gap-6 lg:grid-cols-[22rem_1fr]">
+      <div class="card self-start">
+        <header><h2>Summary</h2></header>
+        <section>
+          <dl id="jwt-summary" class="grid grid-cols-[7rem_1fr] gap-x-4 gap-y-2 text-sm"></dl>
+        </section>
+      </div>
+      <div class="grid min-w-0 gap-6">
+        <div class="card min-w-0">
+          <header><h2>Header</h2></header>
+          <section>
+            <div class="relative">
+              <pre class="overflow-auto rounded-lg bg-muted p-4 text-xs"><code id="jwt-header"></code></pre>
+              <button type="button" class="btn absolute right-4 top-2" data-variant="outline" data-size="xs" id="jwt-header-copy">Copy</button>
+            </div>
+          </section>
+        </div>
+        <div class="card min-w-0" id="jwt-payload-card">
+          <header><h2>Payload (claims)</h2></header>
+          <section>
+            <div class="relative">
+              <pre class="max-h-[32rem] overflow-auto rounded-lg bg-muted p-4 text-xs"><code id="jwt-payload"></code></pre>
+              <button type="button" class="btn absolute right-4 top-2" data-variant="outline" data-size="xs" id="jwt-payload-copy">Copy</button>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <form id="jwt-verify" class="card">
+      <header>
+        <h2>Verify the signature</h2>
+        <p>
+          Paste the issuer’s JWKS (a Keycloak realm publishes it at <code>/realms/&lt;realm&gt;/protocol/openid-connect/certs</code><% if (sandbox.jwksUri) { %>;
+          the sandbox realm’s is <a href="<%= sandbox.jwksUri %>" target="_blank" rel="noopener" class="underline underline-offset-4">here</a><% } %>),
+          a single JWK, a PEM public key, or the shared secret for HS256/384/512.
+        </p>
+      </header>
+      <section class="grid gap-4">
+        <div class="field">
+          <label for="jwt-key">Key</label>
+          <textarea id="jwt-key" rows="5" class="break-all font-mono text-xs" spellcheck="false" autocomplete="off"
+                    placeholder='{"keys":[{"kid":"…","kty":"RSA","alg":"RS256","n":"…","e":"AQAB"}]}'></textarea>
+        </div>
+        <p id="jwt-verify-result" class="hidden text-sm" role="status"></p>
+      </section>
+      <footer class="flex justify-end">
+        <button type="submit" class="btn" data-variant="outline">Verify</button>
+      </footer>
+    </form>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const JWT_RE = /[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)?/g;
+  const isJwt = (s) => typeof s === 'string' && new RegExp(`^${JWT_RE.source}$`).test(s.trim());
+  let tokens = [];
+  let current = null;
+
+  // ---------- finding tokens ----------
+
+  // Returns [{ label, token }]: named when they come from JSON fields or URL/form parameters.
+  function findTokens(raw) {
+    const input = raw.trim();
+    const found = [];
+    const add = (label, token) => { if (!found.some((t) => t.token === token)) found.push({ label, token }); };
+    try {
+      const walk = (obj, path) => {
+        for (const [k, v] of Object.entries(obj || {})) {
+          if (isJwt(v)) add(path + k, v.trim());
+          else if (v && typeof v === 'object') walk(v, `${path}${k}.`);
+        }
+      };
+      walk(JSON.parse(input), '');
+    } catch { /* not JSON */ }
+    for (const part of input.split(/[?#&\s]/)) {
+      const eq = part.indexOf('=');
+      if (eq > 0) {
+        let value = part.slice(eq + 1);
+        try { value = decodeURIComponent(value); } catch { /* keep as is */ }
+        if (isJwt(value)) add(part.slice(0, eq), value);
+      }
+    }
+    for (const m of input.matchAll(JWT_RE)) add(`Token ${found.length + 1}`, m[0]);
+    return found;
+  }
+
+  // ---------- decoding ----------
+
+  const b64urlBytes = (s) => {
+    const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+    const bin = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
+    return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  };
+  const b64urlJson = (s, what) => {
+    let text;
+    try { text = new TextDecoder().decode(b64urlBytes(s)); } catch { throw new Error(`The ${what} is not valid base64url.`); }
+    try { return JSON.parse(text); } catch { throw new Error(`The ${what} is not JSON.`); }
+  };
+
+  function decode(token) {
+    const parts = token.split('.');
+    const header = b64urlJson(parts[0], 'header');
+    if (parts.length === 5) return { parts, header, payload: null, encrypted: true };
+    return { parts, header, payload: b64urlJson(parts[1], 'payload'), encrypted: false };
+  }
+
+  // ---------- showing ----------
+
+  const TIME_CLAIMS = { iat: 'Issued', nbf: 'Not before', exp: 'Expires', auth_time: 'Authenticated' };
+  function relative(seconds) {
+    const diff = seconds - Date.now() / 1000;
+    const abs = Math.abs(diff);
+    const amount = abs < 90 ? `${Math.round(abs)} s` : abs < 5400 ? `${Math.round(abs / 60)} min` : abs < 172800 ? `${Math.round(abs / 3600)} h` : `${Math.round(abs / 86400)} days`;
+    return diff >= 0 ? `in ${amount}` : `${amount} ago`;
+  }
+  const when = (s) => (typeof s === 'number' ? `${new Date(s * 1000).toLocaleString()} (${relative(s)})` : null);
+  const list = (v) => (Array.isArray(v) ? v.join(', ') : v);
+
+  function summary(d) {
+    const h = d.header;
+    const p = d.payload || {};
+    const roles = [...(p.realm_access?.roles || []), ...Object.entries(p.resource_access || {}).flatMap(([c, r]) => (r.roles || []).map((x) => `${c}:${x}`))];
+    return [
+      ['Algorithm', h.alg], ['Key ID', h.kid], ['Type', h.typ], ['Encryption', h.enc],
+      ['Token type', p.typ], ['Issuer', p.iss], ['Subject', p.sub], ['Username', p.preferred_username],
+      ['Audience', list(p.aud)], ['Authorized party', p.azp], ['Scope', p.scope], ['Client', p.client_id],
+      ...Object.entries(TIME_CLAIMS).map(([k, label]) => [label, when(p[k])]),
+      ['Nonce', p.nonce], ['Session', p.sid], ['Roles', roles.join(', ')],
+    ].filter(([, v]) => v !== undefined && v !== null && v !== '');
+  }
+
+  function status(d) {
+    if (d.encrypted) return ['Encrypted (JWE)', 'secondary'];
+    const now = Date.now() / 1000;
+    if (typeof d.payload.exp === 'number' && d.payload.exp < now) return ['Expired', 'destructive'];
+    if (typeof d.payload.nbf === 'number' && d.payload.nbf > now + 5) return ['Not valid yet', 'destructive'];
+    if (d.header.alg === 'none') return ['Unsigned', 'destructive'];
+    return [typeof d.payload.exp === 'number' ? `Valid for ${relative(d.payload.exp).replace(/^in /, '')}` : 'No expiry', 'outline'];
+  }
+
+  function show(entry) {
+    const d = decode(entry.token);
+    current = { ...entry, ...d };
+    $('jwt-kind').textContent = d.encrypted ? 'Encrypted token' : (d.payload.typ === 'ID' ? 'ID token' : d.payload.typ === 'Bearer' ? 'Access token' : d.payload.typ === 'Refresh' ? 'Refresh token' : 'JWT');
+    const [text, variant] = status(d);
+    $('jwt-status').textContent = text;
+    $('jwt-status').dataset.variant = variant;
+
+    const colours = ['text-rose-600 dark:text-rose-400', 'text-violet-600 dark:text-violet-400', 'text-sky-600 dark:text-sky-400', 'text-amber-600 dark:text-amber-400', 'text-emerald-600 dark:text-emerald-400'];
+    $('jwt-encoded').replaceChildren(...d.parts.flatMap((part, i) => {
+      const span = document.createElement('span');
+      span.className = colours[i];
+      span.textContent = part;
+      return i ? [document.createTextNode('.'), span] : [span];
+    }));
+
+    const dl = $('jwt-summary');
+    dl.replaceChildren();
+    for (const [label, val] of summary(d)) {
+      const dt = document.createElement('dt');
+      dt.className = 'text-muted-foreground';
+      dt.textContent = label;
+      const dd = document.createElement('dd');
+      dd.className = 'break-all font-mono text-xs';
+      dd.textContent = val;
+      dl.append(dt, dd);
+    }
+    const headerJson = JSON.stringify(d.header, null, 2);
+    $('jwt-header').textContent = headerJson;
+    $('jwt-header-copy').dataset.copy = headerJson;
+    $('jwt-payload-card').classList.toggle('hidden', d.encrypted);
+    $('jwt-verify').classList.toggle('hidden', d.encrypted);
+    if (!d.encrypted) {
+      const payloadJson = JSON.stringify(d.payload, null, 2);
+      $('jwt-payload').textContent = payloadJson;
+      $('jwt-payload-copy').dataset.copy = payloadJson;
+    }
+    showVerify('');
+  }
+
+  // ---------- signature ----------
+
+  const HASH = { 256: 'SHA-256', 384: 'SHA-384', 512: 'SHA-512' };
+  const CURVE = { ES256: 'P-256', ES384: 'P-384', ES512: 'P-521' };
+
+  // WebCrypto parameters for an alg: [importParams, verifyParams].
+  function algorithm(alg) {
+    const hash = HASH[alg.slice(2)];
+    if (/^RS(256|384|512)$/.test(alg)) return [{ name: 'RSASSA-PKCS1-v1_5', hash }, { name: 'RSASSA-PKCS1-v1_5' }];
+    if (/^PS(256|384|512)$/.test(alg)) return [{ name: 'RSA-PSS', hash }, { name: 'RSA-PSS', saltLength: Number(alg.slice(2)) / 8 }];
+    if (/^ES(256|384|512)$/.test(alg)) return [{ name: 'ECDSA', namedCurve: CURVE[alg] }, { name: 'ECDSA', hash }];
+    if (/^HS(256|384|512)$/.test(alg)) return [{ name: 'HMAC', hash }, { name: 'HMAC' }];
+    if (alg === 'EdDSA' || alg === 'Ed25519') return [{ name: 'Ed25519' }, { name: 'Ed25519' }];
+    throw new Error(`Algorithm "${alg}" can’t be verified here.`);
+  }
+
+  // Candidate keys from the pasted text: [{ label, key }] where key is a CryptoKey.
+  async function importKeys(text, alg, kid) {
+    const [importParams] = algorithm(alg);
+    const input = text.trim();
+    if (!input) throw new Error('Paste a key first.');
+    if (importParams.name === 'HMAC') {
+      return [{ label: 'the secret', key: await crypto.subtle.importKey('raw', new TextEncoder().encode(input), importParams, false, ['verify']) }];
+    }
+    const pem = input.match(/-----BEGIN PUBLIC KEY-----([\s\S]+?)-----END PUBLIC KEY-----/);
+    if (pem) {
+      const der = Uint8Array.from(atob(pem[1].replace(/\s/g, '')), (c) => c.charCodeAt(0));
+      return [{ label: 'the PEM public key', key: await crypto.subtle.importKey('spki', der, importParams, false, ['verify']) }];
+    }
+    if (/BEGIN CERTIFICATE/.test(input)) throw new Error('Paste the public key (BEGIN PUBLIC KEY) or JWKS, not a certificate.');
+    let json;
+    try { json = JSON.parse(input); } catch { throw new Error('The key is not a JWKS, a JWK or a PEM public key.'); }
+    const all = Array.isArray(json.keys) ? json.keys : [json];
+    const usable = all.filter((k) => k.use !== 'enc' && (!k.alg || k.alg === alg));
+    const matching = kid ? usable.filter((k) => k.kid === kid) : usable;
+    if (!matching.length) {
+      throw new Error(kid ? `No ${alg} signing key with kid "${kid}" in the pasted keys (${all.map((k) => k.kid).filter(Boolean).join(', ') || 'none have a kid'}).` : `No ${alg} signing key in the pasted keys.`);
+    }
+    const keys = [];
+    for (const jwk of matching) {
+      const { kid: id, kty, crv, n, e, x, y } = jwk;
+      try {
+        keys.push({ label: `key ${id || '(no kid)'}`, key: await crypto.subtle.importKey('jwk', { kty, crv, n, e, x, y }, importParams, false, ['verify']) });
+      } catch { /* wrong type for this alg */ }
+    }
+    if (!keys.length) throw new Error(`The matching key can’t be used for ${alg}.`);
+    return keys;
+  }
+
+  function showVerify(message, ok) {
+    const el = $('jwt-verify-result');
+    el.textContent = message;
+    el.className = `text-sm ${ok === true ? 'font-medium text-emerald-600 dark:text-emerald-400' : ok === false ? 'text-destructive' : ''}`;
+    el.classList.toggle('hidden', !message);
+  }
+
+  $('jwt-verify').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!current) return;
+    if (!window.crypto?.subtle) return showVerify('Signature checks need a secure page (HTTPS or localhost).', false);
+    const { alg, kid } = current.header;
+    if (!alg || alg === 'none') return showVerify('This token is not signed (alg "none"). Never accept it.', false);
+    try {
+      const [, verifyParams] = algorithm(alg);
+      const data = new TextEncoder().encode(`${current.parts[0]}.${current.parts[1]}`);
+      const signature = b64urlBytes(current.parts[2]);
+      for (const { label, key } of await importKeys($('jwt-key').value, alg, kid)) {
+        if (await crypto.subtle.verify(verifyParams, key, signature, data)) {
+          return showVerify(`✓ Signature valid: ${alg}, verified with ${label}.`, true);
+        }
+      }
+      showVerify(`✕ Signature invalid: the token was not signed with this key, or it was changed after signing.`, false);
+    } catch (err) {
+      showVerify(err.message, false);
+    }
+  });
+
+  // ---------- form ----------
+
+  function showError(message) {
+    $('jwt-error').textContent = message;
+    $('jwt-error').classList.toggle('hidden', !message);
+  }
+
+  $('jwt-decode').addEventListener('submit', (e) => {
+    e.preventDefault();
+    showError('');
+    $('jwt-result').classList.add('hidden');
+    try {
+      tokens = findTokens($('jwt-input').value);
+      if (!tokens.length) throw new Error($('jwt-input').value.trim() ? 'No JWT found. A JWT is three base64url parts separated by dots (five for an encrypted one).' : 'Paste a token first.');
+      const select = $('jwt-select');
+      select.replaceChildren(...tokens.map((t, i) => new Option(`${t.label} (${t.token.slice(0, 16)}…)`, String(i))));
+      $('jwt-picker').classList.toggle('hidden', tokens.length < 2);
+      show(tokens[0]);
+      $('jwt-result').classList.remove('hidden');
+    } catch (err) {
+      showError(err.message);
+    }
+  });
+
+  $('jwt-select').addEventListener('change', (e) => {
+    try { show(tokens[Number(e.target.value)]); showError(''); } catch (err) { showError(err.message); }
+  });
+
+  $('jwt-clear').addEventListener('click', () => {
+    $('jwt-input').value = '';
+    $('jwt-key').value = '';
+    tokens = [];
+    current = null;
+    showError('');
+    $('jwt-result').classList.add('hidden');
+    $('jwt-input').focus();
+  });
+})();
+</script>
+<%- include('../../partials/footer') %>

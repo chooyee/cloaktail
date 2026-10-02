@@ -1,13 +1,13 @@
 <%- include('../partials/header') %>
 <h1 class="text-2xl font-semibold">Welcome, <%= user.firstName || user.username %></h1>
-<p class="mt-1 text-muted-foreground">Connect your application to Keycloak with SAML and test it in the <code><%= sandboxRealm %></code> sandbox realm.</p>
+<p class="mt-1 text-muted-foreground">Connect your application to Keycloak with SAML or OpenID Connect and test it in the <code><%= sandboxRealm %></code> sandbox realm.</p>
 
 <% if (can('apps.own')) { %>
   <% const steps = [
        { done: testUserCount > 0, title: 'Create a test user', text: 'A sandbox account to sign in with while testing.', href: '/test-users', action: 'Test users' },
-       { done: appCount > 0, title: 'Register your application', text: 'Enter your SP entity ID and ACS URL, or import your SP metadata.', href: appCount ? '/apps' : '/apps/new', action: appCount ? 'Applications' : 'Register application' },
-       { done: false, title: 'Test the connection', text: 'Sign in as a test user and inspect the SAML response Keycloak sends.', href: '/apps', action: 'Open an application' },
-       { done: false, title: 'Configure your app', text: 'Copy the IdP metadata URL and certificate from the application page into your SAML library.', href: '/apps', action: null },
+       { done: appCount > 0, title: 'Register your application', text: 'SAML: enter your SP entity ID and ACS URL, or import your SP metadata. OpenID Connect: enter your client ID and redirect URIs.', href: appCount ? '/apps' : '/apps/new', action: appCount ? 'Applications' : 'Register application' },
+       { done: false, title: 'Test the connection', text: 'Sign in as a test user and inspect the SAML response or the tokens Keycloak issues.', href: '/apps', action: 'Open an application' },
+       { done: false, title: 'Configure your app', text: 'Copy the connection details from the application page into your SAML or OpenID Connect library.', href: '/apps', action: null },
      ]; %>
   <div class="card mt-8">
     <header>

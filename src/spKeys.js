@@ -2,15 +2,16 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import selfsigned from 'selfsigned';
 import { config } from './config.js';
-import { getSpKeyRow, putSpKeyRow, promotePendingSpKey, deleteSpKeyRow } from './db.js';
+import { getSpKeyRow, listSpKeyRows, putSpKeyRow, promotePendingSpKey, deleteSpKeyRow, listProfileRows } from './db.js';
 import { encrypt, decrypt } from './lib/secretBox.js';
 
-// The portal's SAML signing key pair: CloakTail signs its AuthnRequests and LogoutRequests with it,
-// and Keycloak verifies them with the certificate (imported into the portal SAML client, with
-// "Client signature required" on). Stored in the database, the private key encrypted.
+// The portal's SAML signing key pairs, one per Keycloak profile: on a profile's domains CloakTail
+// signs its AuthnRequests and LogoutRequests with that profile's key, and its Keycloak verifies them
+// with the certificate (imported into the portal SAML client, with "Client signature required" on).
+// Stored in the database, the private key encrypted.
 //
-// Rotation without surprises: while a key is active, a newly generated or imported key is
-// "pending" until an administrator has imported its certificate into Keycloak and activates it.
+// Rotation without surprises: while a profile has an active key, a newly generated or imported key
+// is "pending" until an administrator has imported its certificate into Keycloak and activates it.
 
 export const KEY_SIZES = [2048, 3072, 4096];
 export const VALIDITY_YEARS = [1, 2, 3, 5, 10];
@@ -43,27 +44,39 @@ function describe(row) {
   };
 }
 
-// For the admin page: public details only, never the private key.
-export async function getSpKeysView() {
-  const [active, pending] = await Promise.all([getSpKeyRow('active'), getSpKeyRow('pending')]);
+// For the admin pages: public details only, never the private key.
+export async function getSpKeysView(profileId) {
+  const [active, pending] = await Promise.all([getSpKeyRow(profileId, 'active'), getSpKeyRow(profileId, 'pending')]);
   return { active: active && describe(active), pending: pending && describe(pending) };
 }
 
-let warnedUnreadable = false;
-
-// The active key pair for signing, or null if none (or it can't be decrypted).
-export async function getActiveSpKey() {
-  const row = await getSpKeyRow('active');
-  if (!row) return null;
-  try {
-    return { certificate: row.certificate, privateKey: decrypt(row.private_key) };
-  } catch {
-    if (!warnedUnreadable) {
-      console.warn('The SAML signing key can\'t be decrypted (did SETTINGS_KEY or SESSION_SECRET change?). Generate or import a new one in the admin console.');
-      warnedUnreadable = true;
-    }
-    return null;
+// Every profile's keys: profile id -> { active, pending } as in getSpKeysView.
+export async function listSpKeysViews() {
+  const views = new Map();
+  for (const row of await listSpKeyRows()) {
+    views.set(row.profile_id, { active: null, pending: null, ...views.get(row.profile_id), [row.status]: describe(row) });
   }
+  return views;
+}
+
+const warnedUnreadable = new Set();
+
+// The active key pairs for signing: profile id -> { certificate, privateKey }. A profile without
+// one (or whose key can't be decrypted) is missing.
+export async function getActiveSpKeys() {
+  const keys = new Map();
+  for (const row of await listSpKeyRows()) {
+    if (row.status !== 'active') continue;
+    try {
+      keys.set(row.profile_id, { certificate: row.certificate, privateKey: decrypt(row.private_key) });
+    } catch {
+      if (!warnedUnreadable.has(row.profile_id)) {
+        console.warn(`The SAML signing key of Keycloak profile #${row.profile_id} can't be decrypted (did SETTINGS_KEY or SESSION_SECRET change?). Generate or import a new one in the admin console.`);
+        warnedUnreadable.add(row.profile_id);
+      }
+    }
+  }
+  return keys;
 }
 
 // ---------- validation ----------
@@ -92,58 +105,61 @@ export function checkKeyPair(certificatePem, privateKeyPem) {
 
 // ---------- changing ----------
 
-// A new key becomes active straight away when there is none yet; otherwise it waits as pending.
-async function store({ certificate, privateKey }, by) {
-  const status = (await getSpKeyRow('active')) ? 'pending' : 'active';
-  await putSpKeyRow(status, { certificate, privateKey: encrypt(privateKey), by });
+// A new key becomes active straight away when the profile has none yet; otherwise it waits as pending.
+async function store(profileId, { certificate, privateKey }, by) {
+  const status = (await getSpKeyRow(profileId, 'active')) ? 'pending' : 'active';
+  await putSpKeyRow(profileId, status, { certificate, privateKey: encrypt(privateKey), by });
   if (status === 'active') await notify();
   return status;
 }
 
-export async function generateSpKey({ commonName, keySize, years }, by) {
+export async function generateSpKey(profile, { commonName, keySize, years }, by) {
   const notAfterDate = new Date();
   notAfterDate.setFullYear(notAfterDate.getFullYear() + years);
   const pems = await selfsigned.generate([{ name: 'commonName', value: commonName }], { keySize, algorithm: 'sha256', notAfterDate });
-  const status = await store({ certificate: pems.cert, privateKey: pems.private }, by);
-  console.log(`[admin] ${by} generated a ${keySize}-bit SAML signing key (${status})`);
+  const status = await store(profile.id, { certificate: pems.cert, privateKey: pems.private }, by);
+  console.log(`[admin] ${by} generated a ${keySize}-bit SAML signing key for profile "${profile.name}" (${status})`);
   return status;
 }
 
-export async function importSpKey(certificatePem, privateKeyPem, by) {
+export async function importSpKey(profile, certificatePem, privateKeyPem, by) {
   const checked = checkKeyPair(certificatePem, privateKeyPem);
   if (checked.error) return checked;
-  const status = await store(checked, by);
-  console.log(`[admin] ${by} imported a SAML signing key (${status})`);
+  const status = await store(profile.id, checked, by);
+  console.log(`[admin] ${by} imported a SAML signing key for profile "${profile.name}" (${status})`);
   return { error: null, status };
 }
 
-export async function activatePendingSpKey(by) {
-  if (!(await promotePendingSpKey())) return false;
-  console.log(`[admin] ${by} activated the pending SAML signing key`);
+export async function activatePendingSpKey(profile, by) {
+  if (!(await promotePendingSpKey(profile.id))) return false;
+  console.log(`[admin] ${by} activated the pending SAML signing key of profile "${profile.name}"`);
   await notify();
   return true;
 }
 
-export async function discardPendingSpKey(by) {
-  await deleteSpKeyRow('pending');
-  console.log(`[admin] ${by} discarded the pending SAML signing key`);
+export async function discardPendingSpKey(profile, by) {
+  await deleteSpKeyRow(profile.id, 'pending');
+  console.log(`[admin] ${by} discarded the pending SAML signing key of profile "${profile.name}"`);
 }
 
 // ---------- one-time migration from certs/*.pem ----------
 
 // Before keys were stored in the database they were files (npm run gen:sp-cert). On the first
-// start without a stored key, an existing pair becomes the active key.
+// start without any stored key, an existing pair becomes the active key of every profile.
 async function migrateKeyFiles() {
-  if (await getSpKeyRow('active')) return;
   const { spKeyFile, spCertFile } = config.saml;
   if (!fs.existsSync(spKeyFile) || !fs.existsSync(spCertFile)) return;
+  if ((await listSpKeyRows()).length) return;
+  const profiles = await listProfileRows();
+  if (!profiles.length) return;
   const checked = checkKeyPair(fs.readFileSync(spCertFile, 'utf8'), fs.readFileSync(spKeyFile, 'utf8'));
   if (checked.error) {
     console.warn(`Not moving ${spKeyFile} into the database: ${checked.error} Generate a key in the admin console instead.`);
     return;
   }
-  await putSpKeyRow('active', { certificate: checked.certificate, privateKey: encrypt(checked.privateKey), by: 'migration' });
-  console.log(`Moved the SAML signing key from ${spKeyFile} and ${spCertFile} into the database. They are no longer read; delete them once you have a backup.`);
+  const privateKey = encrypt(checked.privateKey);
+  for (const p of profiles) await putSpKeyRow(p.id, 'active', { certificate: checked.certificate, privateKey, by: 'migration' });
+  console.log(`Moved the SAML signing key from ${spKeyFile} and ${spCertFile} into the database, for all ${profiles.length} Keycloak profiles. They are no longer read; delete them once you have a backup.`);
 }
 
 await migrateKeyFiles();

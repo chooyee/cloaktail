@@ -1,7 +1,7 @@
 {
   "name": "cloaktail",
   "version": "1.0.0",
-  "description": "CloakTail: the self-service developer portal for Keycloak SAML",
+  "description": "CloakTail: the self-service developer portal for Keycloak SAML and OpenID Connect",
   "main": "src/server.js",
   "scripts": {
     "build:css": "tailwindcss -i styles/app.css -o public/css/app.css --minify",
@@ -20,6 +20,7 @@
     "ejs": "^6.0.1",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
+    "highlight.js": "^11.12.0",
     "htmx.org": "^2.0.11",
     "passport": "^0.7.0",
     "pg": "^8.23.1",

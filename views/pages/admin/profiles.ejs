@@ -23,10 +23,15 @@
     </div>
   <% } %>
 
-  <% if (!hasSigningKey) { %>
+  <% const unsigned = profiles.filter((p) => p.domains.length && !spKeys.get(p.id)?.active); %>
+  <% if (unsigned.length) { %>
     <div class="alert" data-variant="destructive" role="alert">
       <h2>No SAML signing certificate</h2>
-      <section>Keycloak sign-in also needs one. <a href="/admin/signing" class="underline underline-offset-4">Generate it</a> and import it into the portal SAML client.</section>
+      <section>
+        Keycloak sign-in is unavailable on the domains of
+        <% unsigned.forEach((p, i) => { %><%= i ? ', ' : '' %><a href="/admin/keycloak/profiles/<%= p.id %>/signing" class="underline underline-offset-4"><%= p.name %></a><% }) %>.
+        Each profile needs its own certificate: generate one and import it into that profile’s portal SAML client.
+      </section>
     </div>
   <% } %>
 
@@ -46,7 +51,7 @@
       <section class="overflow-x-auto">
         <table class="table">
           <thead>
-            <tr><th>Profile</th><th>Domains</th><th>Keycloak</th><th>Realms</th><th>Secrets</th><th>Updated</th><th></th></tr>
+            <tr><th>Profile</th><th>Domains</th><th>Keycloak</th><th>Realms</th><th>Secrets</th><th>Signing</th><th>Updated</th><th></th></tr>
           </thead>
           <tbody>
             <% for (const p of profiles) {
@@ -68,6 +73,16 @@
                 <td>
                   <% if (p.secretsUnreadable) { %><span class="badge" data-variant="destructive">Unreadable</span>
                   <% } else { %><span class="badge" data-variant="<%= secretsSet === 2 ? 'outline' : 'secondary' %>"><%= secretsSet %> of 2 set</span><% } %>
+                </td>
+                <td>
+                  <% const keys = spKeys.get(p.id), active = keys?.active; %>
+                  <a href="/admin/keycloak/profiles/<%= p.id %>/signing" class="flex flex-wrap gap-1">
+                    <% if (!active) { %><span class="badge" data-variant="<%= p.domains.length ? 'destructive' : 'secondary' %>">None</span>
+                    <% } else if (active.daysLeft < 0) { %><span class="badge" data-variant="destructive">Expired</span>
+                    <% } else if (active.daysLeft < 30) { %><span class="badge" data-variant="destructive"><%= active.daysLeft %> days left</span>
+                    <% } else { %><span class="badge" data-variant="outline">Until <%= active.validTo %></span><% } %>
+                    <% if (keys?.pending) { %><span class="badge" data-variant="secondary">Pending</span><% } %>
+                  </a>
                 </td>
                 <td class="text-xs text-muted-foreground"><%= p.updatedAt %> UTC<%= p.updatedBy ? ` by ${p.updatedBy}` : '' %></td>
                 <td>

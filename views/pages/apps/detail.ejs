@@ -4,6 +4,7 @@
   <div>
     <div class="flex items-center gap-3">
       <h1 class="text-2xl font-semibold"><%= app.name %></h1>
+      <span class="badge" data-variant="secondary">SAML</span>
       <% if (!enabled) { %><span class="badge" data-variant="destructive">Disabled in Keycloak</span><% } %>
     </div>
     <p class="mt-1 font-mono text-sm text-muted-foreground break-all"><%= app.client_id %></p>
@@ -44,23 +45,7 @@
         <button type="submit" class="btn" <%= values.clientSignature ? 'disabled' : '' %>>Run test login</button>
       </form>
 
-      <% if (runs.length) { %>
-        <div class="table-container rounded-lg border">
-          <table class="table">
-            <thead><tr><th>When</th><th>Result</th><th>Summary</th><th></th></tr></thead>
-            <tbody>
-              <% for (const run of runs) { %>
-                <tr>
-                  <td class="whitespace-nowrap"><%= new Date(run.created_at + 'Z').toLocaleString() %></td>
-                  <td><span class="badge" data-variant="<%= run.ok ? 'outline' : 'destructive' %>"><%= run.ok ? 'Passed' : 'Failed' %></span></td>
-                  <td class="max-w-md truncate"><%= run.summary %></td>
-                  <td class="text-right"><a class="btn" data-variant="ghost" data-size="sm" href="/apps/<%= app.id %>/tests/<%= run.id %>">Details</a></td>
-                </tr>
-              <% } %>
-            </tbody>
-          </table>
-        </div>
-      <% } %>
+      <%- include('../../fragments/test-runs') %>
     </section>
   </div>
 
@@ -80,7 +65,17 @@
           <%- include('../../fragments/copy-row', { label: 'IdP-initiated login (sends the user to your ACS)', value: idpInitiatedUrl }) %>
         <% } %>
         <% if (idp.cert) { %>
-          <%- include('../../fragments/copy-row', { label: 'Signing certificate (base64 DER)', value: idp.cert }) %>
+          <div class="grid gap-1">
+            <div class="flex items-center justify-between gap-2">
+              <dt class="text-sm text-muted-foreground"><label for="idp-cert-pem">Signing certificate (PEM)</label></dt>
+              <div class="flex gap-1">
+                <button type="button" class="btn" data-variant="ghost" data-size="xs" data-copy="<%= idp.certPem %>">Copy</button>
+                <button type="button" class="btn" data-variant="outline" data-size="xs" data-download="keycloak-<%= idp.realm %>-idp.pem" data-source="#idp-cert-pem">Download</button>
+              </div>
+            </div>
+            <dd><textarea id="idp-cert-pem" rows="5" readonly class="w-full font-mono text-xs"><%= idp.certPem %></textarea></dd>
+          </div>
+          <%- include('../../fragments/copy-row', { label: 'Signing certificate (bare base64, for libraries that want it without the PEM lines)', value: idp.cert }) %>
         <% } else { %>
           <p class="text-sm text-destructive">Could not read the signing certificate from Keycloak. Use the metadata URL instead.</p>
         <% } %>
@@ -99,16 +94,60 @@
         <dt class="text-muted-foreground">Entity ID</dt><dd class="break-all font-mono text-xs"><%= values.clientId %></dd>
         <dt class="text-muted-foreground">ACS URL</dt><dd class="break-all font-mono text-xs"><%= values.acsUrl %></dd>
         <dt class="text-muted-foreground">Logout URL</dt><dd class="break-all font-mono text-xs"><%= values.sloUrl || '—' %></dd>
-        <dt class="text-muted-foreground">Name ID format</dt><dd><%= NAME_ID_FORMATS[values.nameIdFormat] %></dd>
+        <dt class="text-muted-foreground">Name ID format</dt>
+        <dd><%= NAME_ID_FORMATS[values.nameIdFormat] %><span class="block break-all font-mono text-xs text-muted-foreground"><%= NAME_ID_FORMAT_URNS[values.nameIdFormat] %></span></dd>
         <dt class="text-muted-foreground">Attributes</dt>
         <dd class="flex flex-wrap gap-1">
           <% for (const a of values.attributes) { %><span class="badge" data-variant="secondary"><%= a %></span><% } %>
           <% if (!values.attributes.length) { %>—<% } %>
         </dd>
+        <dt class="text-muted-foreground">Attribute name format</dt>
+        <dd><%= values.attributeNameFormat %><span class="block break-all font-mono text-xs text-muted-foreground"><%= ATTRIBUTE_NAME_FORMAT_URNS[values.attributeNameFormat] %></span></dd>
         <dt class="text-muted-foreground">Signed</dt>
         <dd><%= [values.signDocuments && 'response', values.signAssertions && 'assertion'].filter(Boolean).join(' + ') %></dd>
         <dt class="text-muted-foreground">Signed requests</dt><dd><%= values.clientSignature ? 'Required' : 'Not required' %></dd>
-        <dt class="text-muted-foreground">Encryption</dt><dd><%= values.encryptAssertions ? 'Assertions encrypted' : 'Off' %></dd>
+        <dt class="text-muted-foreground">Encryption</dt><dd><%= values.encryptAssertions ? `Assertions encrypted · ${ENCRYPTION_KEY_ALGORITHMS[values.encryptionKeyAlgorithm].label}` : 'Off' %></dd>
+      </dl>
+    </section>
+  </div>
+
+  <%# ---------- What the app must do ---------- %>
+  <div class="card lg:col-span-2">
+    <header>
+      <h2>Protocol details</h2>
+      <p>What your SAML library must do to talk to this client. Most of it is in the IdP metadata; the rest is listed here.</p>
+    </header>
+    <section>
+      <dl class="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[12rem_1fr]">
+        <dt class="font-medium">Request binding</dt>
+        <dd class="text-muted-foreground">Send the AuthnRequest to the single sign-on URL with HTTP-Redirect or HTTP-POST.</dd>
+        <dt class="font-medium">Response binding</dt>
+        <dd class="text-muted-foreground">Keycloak always <strong class="text-foreground">POSTs</strong> the SAML response (HTTP-POST binding) to your ACS URL, so its route must accept POST. With a session cookie set to <code>SameSite=Lax</code> or stricter, that POST arrives without it.</dd>
+        <dt class="font-medium">Name ID</dt>
+        <dd class="text-muted-foreground">Keycloak always sends <code class="break-all"><%= NAME_ID_FORMAT_URNS[values.nameIdFormat] %></code>, whatever format the request asks for. Set your library to request this format (or none) so it doesn’t reject the response.</dd>
+        <dt class="font-medium">Signatures</dt>
+        <dd class="text-muted-foreground">RSA-SHA256 with exclusive XML canonicalization. Validate with the IdP signing certificate above, or from the metadata URL so key rotation is picked up.</dd>
+        <% if (values.clientSignature) { %>
+          <dt class="font-medium text-foreground">Signed requests <span class="badge ml-1">Required</span></dt>
+          <dd class="text-muted-foreground">
+            Sign every AuthnRequest and LogoutRequest with the private key of the signing certificate you uploaded; Keycloak rejects unsigned requests with “Invalid requester”.
+            Use <strong class="text-foreground">RSA-SHA256</strong>: many libraries sign with SHA-1 by default (passport-saml does), which Keycloak still accepts but which is deprecated.
+          </dd>
+        <% } %>
+        <% if (values.encryptAssertions) { %>
+          <dt class="font-medium text-foreground">Encrypted assertions <span class="badge ml-1">On</span></dt>
+          <dd class="text-muted-foreground">
+            Keycloak encrypts each assertion with the encryption certificate you uploaded. Give your library the matching <strong class="text-foreground">private key</strong> to decrypt it
+            (<code>decryptionPvk</code> in passport-saml); without it, sign-in fails with “No decryption key for encrypted SAML response”.
+            The assertion’s key is encrypted with <code class="break-all"><%= ENCRYPTION_KEY_ALGORITHMS[values.encryptionKeyAlgorithm].keyAlgorithm %></code>
+            (digest <code class="break-all"><%= ENCRYPTION_KEY_ALGORITHMS[values.encryptionKeyAlgorithm].digestMethod %></code>).
+            <% if (values.encryptionKeyAlgorithm !== 'rsa-oaep-mgf1p') { %>
+              <span class="mt-1 block text-destructive">passport-saml (node-saml) can’t decrypt this and fails with “key encryption algorithm … not supported”. <% if (canEdit) { %><a href="/apps/<%= app.id %>/edit" class="underline underline-offset-4">Edit the settings</a> and<% } else { %>Ask the owner to<% } %> choose “RSA-OAEP, SHA-1” as the encryption key algorithm.</span>
+            <% } %>
+          </dd>
+        <% } %>
+        <dt class="font-medium">Your metadata</dt>
+        <dd class="text-muted-foreground">Keycloak doesn’t read your SP metadata at runtime: this client already holds your entity ID, ACS URL<%= values.clientSignature || values.encryptAssertions ? ' and certificates' : '' %>. Change them here, not in your metadata.</dd>
       </dl>
     </section>
   </div>
@@ -116,23 +155,11 @@
   <%# ---------- Example config ---------- %>
   <div class="card lg:col-span-2">
     <header>
-      <h2>Example: Node.js (@node-saml/passport-saml)</h2>
-      <p>Other SAML libraries take the same values.</p>
+      <h2>Example code</h2>
+      <p>Complete for this client’s settings<%= values.clientSignature || values.encryptAssertions ? ', including the keys your app must hold' : '' %>. Other SAML libraries take the same values.</p>
     </header>
     <section>
-<% const snippet = `new SamlStrategy({
-  entryPoint: '${idp.ssoUrl}',
-  issuer: '${values.clientId}',
-  callbackUrl: '${values.acsUrl}',
-  idpIssuer: '${idp.entityId}',
-  idpCert: '<signing certificate above, or fetch it from ${idp.metadataUrl}>',
-  wantAuthnResponseSigned: ${values.signDocuments},
-  wantAssertionsSigned: ${values.signAssertions},${values.sloUrl ? `\n  logoutUrl: '${idp.sloUrl}',\n  logoutCallbackUrl: '${values.sloUrl}',` : ''}
-}, (profile, done) => done(null, profile), (profile, done) => done(null, profile));`; %>
-      <div class="relative">
-        <pre class="overflow-x-auto rounded-lg bg-muted p-4 text-xs"><code><%= snippet %></code></pre>
-        <button type="button" class="btn absolute right-2 top-2" data-variant="outline" data-size="xs" data-copy="<%= snippet %>">Copy</button>
-      </div>
+      <%- include('../../fragments/code-samples', { id: 'saml-example', samples: codeSamples }) %>
     </section>
   </div>
 

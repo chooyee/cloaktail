@@ -1,0 +1,413 @@
+/* CloakTail sandbox login theme: dark blue, always dark.
+   Layout: top bar, then (desktop) guide + disclaimer on the left, form card on the right;
+   (mobile) disclaimer, form card, guide. Tokens first, then PatternFly overrides, then layout. */
+
+:root {
+  --ct-bg: #050e24;
+  --ct-bg-2: #0a1a3f;
+  --ct-surface: #0d1d44;
+  --ct-surface-2: #10244f;
+  --ct-input: #0a1838;
+  --ct-border: #1e3566;
+  --ct-border-strong: #2d4c8a;
+  --ct-text: #e8eefb;
+  --ct-text-2: #b4c3e0;
+  --ct-muted: #8ea2c8;
+  --ct-primary: #2563eb;
+  --ct-primary-hover: #1d4ed8;
+  --ct-link: #8ab8ff;
+  --ct-link-hover: #b5d2ff;
+  --ct-focus: #60a5fa;
+  --ct-warn: #fbbf24;
+  --ct-warn-bg: rgba(251, 191, 36, 0.08);
+  --ct-warn-border: rgba(251, 191, 36, 0.38);
+  --ct-danger: #fca5a5;
+  --ct-success: #86efac;
+  --ct-radius: 14px;
+  --ct-radius-sm: 9px;
+  --ct-font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ct-mono: ui-monospace, "Cascadia Code", Consolas, "SF Mono", monospace;
+}
+
+/* ---------- PatternFly tokens, retuned to the navy palette ---------- */
+
+html.ct-theme,
+html.ct-theme.pf-v5-theme-dark {
+  --pf-v5-global--FontFamily--text: var(--ct-font);
+  --pf-v5-global--FontFamily--heading: var(--ct-font);
+  --pf-v5-global--FontFamily--monospace: var(--ct-mono);
+  --pf-v5-global--BackgroundColor--100: var(--ct-surface);
+  --pf-v5-global--BackgroundColor--200: var(--ct-bg-2);
+  --pf-v5-global--BackgroundColor--400: var(--ct-input);
+  --pf-v5-global--Color--100: var(--ct-text);
+  --pf-v5-global--Color--200: var(--ct-text-2);
+  --pf-v5-global--BorderColor--100: var(--ct-border);
+  --pf-v5-global--BorderColor--200: var(--ct-border);
+  --pf-v5-global--BorderColor--300: var(--ct-border);
+  --pf-v5-global--BorderColor--400: var(--ct-border-strong);
+  --pf-v5-global--primary-color--100: var(--ct-primary);
+  --pf-v5-global--primary-color--200: var(--ct-primary-hover);
+  --pf-v5-global--active-color--100: var(--ct-focus);
+  --pf-v5-global--link--Color: var(--ct-link);
+  --pf-v5-global--link--Color--hover: var(--ct-link-hover);
+  --pf-v5-global--danger-color--100: var(--ct-danger);
+  --pf-v5-global--danger-color--200: var(--ct-danger);
+  --pf-v5-global--success-color--100: var(--ct-success);
+  --pf-v5-global--warning-color--100: var(--ct-warn);
+  --pf-v5-global--BorderRadius--sm: var(--ct-radius-sm);
+  --pf-v5-c-button--BorderRadius: var(--ct-radius-sm);
+  --pf-v5-c-button--m-primary--BackgroundColor: var(--ct-primary);
+  --pf-v5-c-button--m-primary--hover--BackgroundColor: var(--ct-primary-hover);
+  --pf-v5-c-button--m-primary--focus--BackgroundColor: var(--ct-primary-hover);
+  --pf-v5-c-button--m-primary--active--BackgroundColor: var(--ct-primary-hover);
+  --pf-v5-c-button--m-primary--Color: #fff;
+  --pf-v5-c-form-control--BackgroundColor: var(--ct-input);
+  --pf-v5-c-form-control--BorderRadius: var(--ct-radius-sm);
+  --pf-v5-c-form-control--before--BorderColor: var(--ct-border-strong);
+  --pf-v5-c-form-control--after--BorderColor: transparent;
+  --pf-v5-c-form-control--hover--after--BorderColor: var(--ct-focus);
+  --pf-v5-c-form-control--focus--after--BorderColor: var(--ct-focus);
+  --pf-v5-c-form-control--before--BorderRadius: var(--ct-radius-sm);
+  --pf-v5-c-form-control--after--BorderRadius: var(--ct-radius-sm);
+  --pf-v5-c-form__label--Color: var(--ct-text);
+  --pf-v5-c-alert--BackgroundColor: var(--ct-surface-2);
+  --pf-v5-c-check__label--Color: var(--ct-text-2);
+  height: 100%;
+}
+
+/* ---------- Page ---------- */
+
+html.ct-theme body.ct-body {
+  margin: 0;
+  min-height: 100%;
+  color: var(--ct-text);
+  font-family: var(--ct-font);
+  background:
+    radial-gradient(1100px 600px at 85% -10%, rgba(37, 99, 235, 0.22), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(56, 189, 248, 0.10), transparent 60%),
+    linear-gradient(180deg, var(--ct-bg) 0%, var(--ct-bg-2) 100%);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+
+.ct-skip {
+  position: absolute;
+  left: 16px;
+  top: -48px;
+  padding: 8px 14px;
+  border-radius: var(--ct-radius-sm);
+  background: var(--ct-primary);
+  color: #fff;
+  z-index: 10;
+}
+.ct-skip:focus { top: 12px; }
+
+.ct-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.ct-body a { color: var(--ct-link); text-underline-offset: 3px; }
+.ct-body a:hover { color: var(--ct-link-hover); }
+.ct-body :focus-visible { outline: 2px solid var(--ct-focus); outline-offset: 2px; }
+
+/* ---------- Top bar ---------- */
+
+.ct-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px clamp(16px, 4vw, 40px);
+  border-bottom: 1px solid rgba(45, 76, 138, 0.45);
+  background: rgba(5, 14, 36, 0.6);
+  backdrop-filter: blur(8px);
+}
+
+.ct-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ct-logo { flex: none; display: block; }
+.ct-brand-name { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; color: var(--ct-text); }
+
+.ct-pill {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--ct-warn-border);
+  background: var(--ct-warn-bg);
+  color: var(--ct-warn);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ct-realm { display: flex; align-items: center; gap: 8px; color: var(--ct-muted); font-size: 13px; min-width: 0; }
+.ct-realm code {
+  font-family: var(--ct-mono);
+  font-size: 12.5px;
+  color: var(--ct-text-2);
+  background: var(--ct-surface);
+  border: 1px solid var(--ct-border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- Layout ---------- */
+
+.ct-layout {
+  flex: 1;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  padding: clamp(24px, 5vw, 56px) clamp(16px, 4vw, 40px);
+  display: grid;
+  gap: 20px 48px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 440px);
+  grid-template-areas:
+    "intro card"
+    "disclaimer card"
+    ". card";
+  align-items: start;
+}
+
+.ct-intro { grid-area: intro; }
+.ct-disclaimer { grid-area: disclaimer; }
+.ct-card-wrap { grid-area: card; }
+
+@media (max-width: 900px) {
+  .ct-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "disclaimer" "card" "intro";
+    max-width: 520px;
+    gap: 16px;
+  }
+  .ct-realm-label { display: none; }
+  .ct-inline-notice { display: none; } /* the disclaimer sits right above the card */
+}
+
+/* ---------- Guide ---------- */
+
+.ct-intro-title {
+  margin: 0 0 10px;
+  font-size: clamp(22px, 2.6vw, 30px);
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ct-text);
+}
+.ct-intro-text { margin: 0; color: var(--ct-text-2); font-size: 15px; line-height: 1.6; max-width: 46ch; }
+
+.ct-app {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  margin: 18px 0 0;
+  padding: 8px 12px;
+  border-radius: var(--ct-radius-sm);
+  background: var(--ct-surface);
+  border: 1px solid var(--ct-border);
+  font-size: 13.5px;
+  color: var(--ct-muted);
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.ct-app strong { color: var(--ct-text); font-weight: 600; word-break: break-all; }
+
+.ct-steps-title {
+  margin: 28px 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ct-muted);
+}
+
+.ct-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.ct-step { position: relative; display: flex; gap: 14px; padding-bottom: 18px; }
+.ct-step:last-child { padding-bottom: 0; }
+.ct-step:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: 30px;
+  bottom: 4px;
+  width: 2px;
+  background: linear-gradient(var(--ct-border-strong), var(--ct-border));
+}
+.ct-step-num {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.18);
+}
+.ct-step-title { margin: 3px 0 2px; font-weight: 600; font-size: 14.5px; color: var(--ct-text); }
+.ct-step-text { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--ct-muted); }
+
+.ct-links { margin: 22px 0 0; font-size: 14px; }
+.ct-links a { font-weight: 500; text-decoration: none; }
+.ct-links a:hover { text-decoration: underline; }
+
+/* ---------- Disclaimer ---------- */
+
+.ct-disclaimer {
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--ct-radius);
+  border: 1px solid var(--ct-warn-border);
+  background: var(--ct-warn-bg);
+}
+.ct-disclaimer-icon { flex: none; color: var(--ct-warn); margin-top: 1px; }
+.ct-disclaimer-title { margin: 0 0 4px; font-weight: 650; font-size: 14.5px; color: #fde68a; }
+.ct-disclaimer-text { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--ct-text-2); }
+.ct-disclaimer-link { display: inline-block; margin-top: 8px; font-size: 13px; font-weight: 500; }
+
+.ct-inline-notice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 0 0 20px;
+  padding: 10px 12px;
+  border-radius: var(--ct-radius-sm);
+  border: 1px solid var(--ct-warn-border);
+  background: var(--ct-warn-bg);
+  color: var(--ct-text-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.ct-inline-notice svg { flex: none; color: var(--ct-warn); margin-top: 1px; }
+
+/* ---------- Form card (keycloak.v2's main) ---------- */
+
+.ct-theme .ct-card.pf-v5-c-login__main {
+  margin: 0;
+  padding: 0;
+  border-radius: var(--ct-radius);
+  background: linear-gradient(180deg, var(--ct-surface-2), var(--ct-surface));
+  border: 1px solid var(--ct-border);
+  box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(96, 165, 250, 0.04) inset;
+  overflow: hidden;
+}
+
+.ct-theme .ct-card .pf-v5-c-login__main-header {
+  border-top: 0;
+  padding: 28px 28px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: transparent;
+}
+.ct-theme .ct-card #kc-page-title {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--ct-text);
+}
+
+.ct-theme .ct-card .pf-v5-c-login__main-body { padding: 16px 28px 8px; }
+.ct-theme .ct-card .pf-v5-c-login__main-footer { padding: 0 28px 24px; }
+.ct-theme .ct-card .pf-v5-c-login__main-footer:empty { display: none; }
+
+.ct-theme .ct-card .pf-v5-c-form { gap: 18px; }
+.ct-theme .ct-card .pf-v5-c-form__label-text { font-weight: 550; font-size: 14px; }
+.ct-theme .ct-card .pf-v5-c-form__helper-text,
+.ct-theme .ct-card .pf-v5-c-helper-text__item-text { font-size: 12.5px; }
+
+.ct-theme .ct-card .pf-v5-c-form-control {
+  min-height: 44px;
+  color: var(--ct-text);
+  transition: box-shadow 0.15s ease;
+}
+.ct-theme .ct-card .pf-v5-c-form-control:focus-within {
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.28);
+  border-radius: var(--ct-radius-sm);
+}
+.ct-theme .ct-card .pf-v5-c-form-control > input,
+.ct-theme .ct-card .pf-v5-c-form-control > select,
+.ct-theme .ct-card .pf-v5-c-form-control > textarea { color: var(--ct-text); font-size: 15px; }
+.ct-theme .ct-card .pf-v5-c-form-control > input::placeholder { color: var(--ct-muted); }
+
+/* Browsers' autofill paints inputs light; keep them navy. */
+.ct-theme .ct-card input:-webkit-autofill,
+.ct-theme .ct-card input:-webkit-autofill:hover,
+.ct-theme .ct-card input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--ct-text);
+  -webkit-box-shadow: 0 0 0 1000px var(--ct-input) inset;
+  caret-color: var(--ct-text);
+}
+
+.ct-theme .ct-card .pf-v5-c-button.pf-m-primary {
+  min-height: 46px;
+  font-weight: 600;
+  font-size: 15px;
+  box-shadow: 0 8px 20px -10px rgba(37, 99, 235, 0.9);
+  transition: background-color 0.15s ease, transform 0.05s ease;
+}
+.ct-theme .ct-card .pf-v5-c-button.pf-m-primary:active { transform: translateY(1px); }
+.ct-theme .ct-card .pf-v5-c-button.pf-m-secondary {
+  min-height: 44px;
+  --pf-v5-c-button--m-secondary--Color: var(--ct-link);
+  --pf-v5-c-button--m-secondary--after--BorderColor: var(--ct-border-strong);
+}
+.ct-theme .ct-card .pf-v5-c-button.pf-m-control { background: var(--ct-input); }
+
+.ct-theme .ct-card .pf-v5-c-alert {
+  border-radius: var(--ct-radius-sm);
+  border: 1px solid var(--ct-border);
+  background: var(--ct-surface-2);
+}
+.ct-theme .ct-card .pf-v5-c-alert.pf-m-danger { border-color: rgba(252, 165, 165, 0.45); }
+.ct-theme .ct-card .pf-v5-c-alert.pf-m-warning { border-color: var(--ct-warn-border); }
+.ct-theme .ct-card .pf-v5-c-alert.pf-m-success { border-color: rgba(134, 239, 172, 0.4); }
+
+/* "No test user yet? Register" */
+.ct-theme .ct-card .pf-v5-c-login__main-footer-band {
+  margin-top: 8px;
+  padding: 16px 0 0;
+  border-top: 1px solid var(--ct-border);
+  background: transparent;
+  text-align: center;
+  color: var(--ct-muted);
+  font-size: 14px;
+}
+.ct-theme .ct-card #kc-registration a { font-weight: 600; }
+
+.ct-theme .ct-card .pf-v5-c-login__main-header-utilities .pf-v5-c-form-control { min-height: 36px; }
+
+/* ---------- Footer ---------- */
+
+.ct-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px 16px 24px;
+  color: var(--ct-muted);
+  font-size: 12.5px;
+}
+
+@media (max-width: 480px) {
+  .ct-theme .ct-card .pf-v5-c-login__main-header { padding: 22px 18px 6px; }
+  .ct-theme .ct-card .pf-v5-c-login__main-body { padding: 14px 18px 6px; }
+  .ct-theme .ct-card .pf-v5-c-login__main-footer { padding: 0 18px 20px; }
+  .ct-brand-name { font-size: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-body * { transition: none !important; }
+}

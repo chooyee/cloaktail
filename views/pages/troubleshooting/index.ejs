@@ -1,23 +1,28 @@
 <%- include('../../partials/header') %>
 <article class="mx-auto max-w-3xl py-6">
   <p class="text-sm font-medium text-muted-foreground">Troubleshooting</p>
-  <h1 class="mt-2 text-3xl font-semibold tracking-tight">Keycloak SAML errors and how to fix them</h1>
+  <h1 class="mt-2 text-3xl font-semibold tracking-tight">Keycloak SAML and OIDC errors and how to fix them</h1>
   <p class="mt-3 text-muted-foreground">
-    The problems developers hit most often when connecting an app to Keycloak with SAML 2.0: what you see, why it happens, how to confirm it and how to fix it.
+    The problems developers hit most often when connecting an app to Keycloak with SAML 2.0 or OpenID Connect: what you see, why it happens, how to confirm it and how to fix it.
   </p>
   <p class="mt-2 text-xs text-muted-foreground">Last updated <time datetime="<%= content.updated %>"><%= content.updatedLabel %></time></p>
 
-  <ul class="mt-10 grid gap-4">
-    <% for (const p of content.problems) { %>
-      <li>
-        <a href="/troubleshooting/<%= p.slug %>" class="card block transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2">
-          <header>
-            <h2 class="text-base font-semibold"><%= p.q %></h2>
-            <p><%= p.a %></p>
-          </header>
-        </a>
-      </li>
-    <% } %>
-  </ul>
+  <% for (const group of content.problemGroups()) { %>
+    <section class="mt-10" aria-labelledby="group-<%= group.protocol %>">
+      <h2 id="group-<%= group.protocol %>" class="text-xl font-semibold tracking-tight"><%= group.name %></h2>
+      <ul class="mt-4 grid gap-4">
+        <% for (const p of group.problems) { %>
+          <li>
+            <a href="/troubleshooting/<%= p.slug %>" class="card block transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2">
+              <header>
+                <h3 class="text-base font-semibold"><%= p.q %></h3>
+                <p><%= p.a %></p>
+              </header>
+            </a>
+          </li>
+        <% } %>
+      </ul>
+    </section>
+  <% } %>
 </article>
 <%- include('../../partials/footer') %>

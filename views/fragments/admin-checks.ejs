@@ -1,7 +1,9 @@
-<%# Result list of the admin console's Keycloak connection test. Expects `checks`: [{ name, ok, detail }]. %>
+<%# Result list of the admin console's Keycloak connection checks. Expects `checks`: [{ name, ok, detail }], optional `checkedAt`. %>
 <% const failed = checks.filter((c) => !c.ok).length; %>
 <p class="text-sm font-medium <%= failed ? 'text-destructive' : '' %>">
-  <%= failed ? `${failed} of ${checks.length} checks failed` : `All ${checks.length} checks passed` %>
+  <%= checks.length === 1 ? (failed ? 'Check failed' : 'Check passed')
+      : failed ? `${failed} of ${checks.length} checks failed` : `All ${checks.length} checks passed` %>
+  <% if (typeof checkedAt !== 'undefined') { %><span class="font-normal text-muted-foreground">· <%= checkedAt %></span><% } %>
 </p>
 <ul class="mt-3 grid gap-3">
   <% for (const c of checks) { %>

@@ -7,7 +7,7 @@
     <section>
       <h2 class="text-base font-semibold">For development and testing only</h2>
       <p class="mt-2 text-muted-foreground">
-        CloakTail and its <code><%= sandboxRealm %></code> sandbox realm are provided to help developers build and test SAML integrations.
+        CloakTail and its <code><%= sandboxRealm %></code> sandbox realm are provided to help developers build and test SAML and OpenID Connect integrations.
         They are not a production identity service. Do not connect production applications to the sandbox or rely on it for real users.
       </p>
     </section>
@@ -16,7 +16,7 @@
       <h2 class="text-base font-semibold">No real personal data or credentials</h2>
       <p class="mt-2 text-muted-foreground">
         Test users must use made-up names and email addresses. Never enter real people’s personal data, and never reuse a password you use anywhere else.
-        SAML test results, including attribute values and the raw response, are stored in the portal and visible to administrators.
+        Test results, including SAML attribute values and raw responses and the decoded claims of OIDC tokens, are stored in the portal and visible to administrators.
       </p>
     </section>
 

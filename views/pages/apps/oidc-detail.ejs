@@ -1,0 +1,152 @@
+<%- include('../../partials/header') %>
+<% const isPublic = values.clientType === 'public'; %>
+<a href="/apps" class="text-sm text-muted-foreground hover:underline">← Applications</a>
+<div class="mt-2 flex flex-wrap items-center justify-between gap-4">
+  <div>
+    <div class="flex items-center gap-3">
+      <h1 class="text-2xl font-semibold"><%= app.name %></h1>
+      <span class="badge" data-variant="secondary">OpenID Connect</span>
+      <% if (!enabled) { %><span class="badge" data-variant="destructive">Disabled in Keycloak</span><% } %>
+    </div>
+    <p class="mt-1 font-mono text-sm text-muted-foreground break-all"><%= app.client_id %></p>
+    <% if (app.owner !== user.username) { %><p class="mt-1 text-sm text-muted-foreground">Owner: <%= app.owner %></p><% } %>
+  </div>
+  <% if (canEdit) { %>
+    <a href="/apps/<%= app.id %>/edit" class="btn" data-variant="outline">Edit settings</a>
+  <% } %>
+</div>
+
+<% if (created) { %>
+  <div class="alert mt-6" role="status">
+    <h2>Application registered</h2>
+    <section>Keycloak created client <code><%= app.client_id %></code> in realm <code><%= op.realm %></code>. Run a test login below.</section>
+  </div>
+<% } else if (secretRegenerated) { %>
+  <div class="alert mt-6" role="status">
+    <h2>New client secret</h2>
+    <section>The old secret no longer works. Update your app’s configuration with the new one below.</section>
+  </div>
+<% } %>
+
+<div class="mt-6 grid gap-6 lg:grid-cols-2">
+  <%# ---------- Test connection ---------- %>
+  <div class="card lg:col-span-2">
+    <header>
+      <h2>Test connection</h2>
+      <p>The portal runs the authorization code flow with PKCE as <code><%= app.client_id %></code>. Sign in with one of your test users, then see the tokens and claims Keycloak issued.</p>
+    </header>
+    <section class="grid gap-4">
+      <% if (testUserCount === 0 && app.owner === user.username) { %>
+        <div class="alert" role="status"><section>
+          You have no test users yet. <a class="underline underline-offset-4" href="/test-users">Create one</a> to sign in with during the test.
+        </section></div>
+      <% } %>
+      <form method="post" action="/apps/<%= app.id %>/test">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <button type="submit" class="btn">Run test login</button>
+      </form>
+      <%- include('../../fragments/test-runs') %>
+    </section>
+  </div>
+
+  <%# ---------- OpenID provider details ---------- %>
+  <div class="card">
+    <header>
+      <h2>Keycloak (OpenID provider) details</h2>
+      <p>Most libraries only need the issuer; they read the rest from the discovery document.</p>
+    </header>
+    <section>
+      <dl class="grid gap-4">
+        <%- include('../../fragments/copy-row', { label: 'Issuer', value: op.issuer }) %>
+        <%- include('../../fragments/copy-row', { label: 'Discovery document', value: op.discoveryUrl }) %>
+        <%- include('../../fragments/copy-row', { label: 'Authorization endpoint', value: op.authorizationEndpoint }) %>
+        <%- include('../../fragments/copy-row', { label: 'Token endpoint', value: op.tokenEndpoint }) %>
+        <%- include('../../fragments/copy-row', { label: 'Userinfo endpoint', value: op.userinfoEndpoint }) %>
+        <%- include('../../fragments/copy-row', { label: 'JWKS (signing keys)', value: op.jwksUri }) %>
+        <%- include('../../fragments/copy-row', { label: 'End session (logout) endpoint', value: op.endSessionEndpoint }) %>
+      </dl>
+    </section>
+  </div>
+
+  <div class="grid gap-6 self-start">
+    <%# ---------- Client credentials ---------- %>
+    <div class="card">
+      <header>
+        <h2>Client credentials</h2>
+        <p><%= isPublic ? 'A public client has no secret: your app proves itself with PKCE.' : 'Keep the secret on the server; never ship it to a browser or mobile app.' %></p>
+      </header>
+      <section>
+        <dl class="grid gap-4">
+          <%- include('../../fragments/copy-row', { label: 'Client ID', value: app.client_id }) %>
+          <% if (!isPublic) { %>
+            <% if (secret) { %>
+              <div class="grid gap-1">
+                <dt class="text-sm text-muted-foreground">Client secret</dt>
+                <dd class="flex items-start gap-2">
+                  <details class="min-w-0 flex-1">
+                    <summary class="cursor-pointer rounded bg-muted px-2 py-1 font-mono text-xs">••••••••••••  <span class="font-sans text-muted-foreground">show</span></summary>
+                    <code class="mt-1 block break-all rounded bg-muted px-2 py-1 text-xs"><%= secret %></code>
+                  </details>
+                  <button type="button" class="btn" data-variant="ghost" data-size="xs" data-copy="<%= secret %>">Copy</button>
+                </dd>
+              </div>
+            <% } else if (!canEdit) { %>
+              <p class="text-sm text-muted-foreground">Only the owner can see the client secret.</p>
+            <% } %>
+          <% } %>
+        </dl>
+      </section>
+      <% if (!isPublic && canEdit) { %>
+        <footer class="flex justify-end">
+          <button class="btn" data-variant="outline" hx-post="/apps/<%= app.id %>/secret"
+                  hx-confirm="Generate a new client secret? The current one stops working immediately.">Regenerate secret</button>
+        </footer>
+      <% } %>
+    </div>
+
+    <%# ---------- Client settings ---------- %>
+    <div class="card">
+      <header>
+        <h2>Your app (client) settings</h2>
+        <p>What Keycloak expects from your app.</p>
+      </header>
+      <section>
+        <dl class="grid grid-cols-[10rem_1fr] gap-x-4 gap-y-2 text-sm">
+          <dt class="text-muted-foreground">Client type</dt><dd><%= isPublic ? 'Public' : 'Confidential' %></dd>
+          <dt class="text-muted-foreground">Redirect URIs</dt>
+          <dd class="grid gap-0.5 break-all font-mono text-xs"><% for (const u of values.redirectUris) { %><span><%= u %></span><% } %><% if (!values.redirectUris.length) { %>—<% } %></dd>
+          <dt class="text-muted-foreground">Post-logout URIs</dt>
+          <dd class="grid gap-0.5 break-all font-mono text-xs"><% for (const u of values.postLogoutRedirectUris) { %><span><%= u %></span><% } %><% if (!values.postLogoutRedirectUris.length) { %>—<% } %></dd>
+          <dt class="text-muted-foreground">Web origins</dt><dd class="break-all font-mono text-xs"><%= values.webOrigins.join(', ') || '—' %></dd>
+          <dt class="text-muted-foreground">PKCE</dt><dd><%= values.requirePkce ? 'Required (S256)' : 'Optional' %></dd>
+          <dt class="text-muted-foreground">Service account</dt><dd><%= values.serviceAccount ? 'On (client credentials grant)' : 'Off' %></dd>
+        </dl>
+      </section>
+    </div>
+  </div>
+
+  <%# ---------- Example config ---------- %>
+  <div class="card lg:col-span-2">
+    <header>
+      <h2>Example code</h2>
+      <p>Other OpenID Connect libraries take the same issuer, client ID<%= isPublic ? '' : ' and secret' %>.</p>
+    </header>
+    <section>
+      <%- include('../../fragments/code-samples', { id: 'oidc-example', samples: codeSamples }) %>
+    </section>
+  </div>
+
+  <% if (canEdit) { %>
+    <div class="card lg:col-span-2">
+      <header>
+        <h2>Delete application</h2>
+        <p>Removes the OpenID Connect client from Keycloak and its test history from the portal.</p>
+      </header>
+      <footer class="flex justify-end">
+        <button class="btn" data-variant="destructive" hx-post="/apps/<%= app.id %>/delete"
+                hx-confirm="Delete <%= app.name %>? Its Keycloak client is removed immediately.">Delete application</button>
+      </footer>
+    </div>
+  <% } %>
+</div>
+<%- include('../../partials/footer') %>

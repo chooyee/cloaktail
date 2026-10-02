@@ -7,9 +7,12 @@
 <%
   const metaDescription = typeof description !== 'undefined' && description
     ? description
-    : 'CloakTail is the self-service developer portal for Keycloak SAML: register SAML clients in a sandbox realm, sign in as test users and inspect every assertion before you ship.';
+    : 'CloakTail is the self-service developer portal for Keycloak SAML and OpenID Connect: register clients in a sandbox realm, sign in as test users and inspect every assertion and token before you ship.';
 %>
   <meta name="description" content="<%= metaDescription %>">
+<% if (typeof keywords !== 'undefined' && keywords) { %>
+  <meta name="keywords" content="<%= [].concat(keywords).join(', ') %>">
+<% } %>
   <%# Only the public marketing pages are indexed (see app.js); everything else is private or per-user. %>
   <meta name="robots" content="<%= indexable ? 'index, follow' : 'noindex, nofollow' %>">
 <% if (indexable) { %>
@@ -55,6 +58,41 @@
       link.click();
       URL.revokeObjectURL(link.href);
     });
+    // Accessible tabs: [data-tabs] wraps [role=tab] buttons whose aria-controls name their panels (arrow keys
+    // move between tabs). Tabs with data-lang remember the pick, so every code sample opens in that language.
+    document.addEventListener('DOMContentLoaded', () => {
+      const LANG_KEY = 'cloaktail:code-lang';
+      let savedLang = null;
+      try { savedLang = localStorage.getItem(LANG_KEY); } catch { /* storage blocked */ }
+      document.querySelectorAll('[data-tabs]').forEach((root) => {
+        const tabs = [...root.querySelectorAll('[role=tab]')];
+        const select = (tab) => {
+          tabs.forEach((t) => {
+            const on = t === tab;
+            t.setAttribute('aria-selected', on);
+            t.tabIndex = on ? 0 : -1;
+            document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+          });
+        };
+        const pick = (tab) => {
+          select(tab);
+          if (!tab.dataset.lang) return;
+          try { localStorage.setItem(LANG_KEY, tab.dataset.lang); } catch { /* storage blocked */ }
+        };
+        tabs.forEach((tab, i) => {
+          tab.addEventListener('click', () => pick(tab));
+          tab.addEventListener('keydown', (e) => {
+            const next = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+            if (!next) return;
+            const target = tabs[(i + next + tabs.length) % tabs.length];
+            pick(target);
+            target.focus();
+          });
+        });
+        const remembered = savedLang && tabs.find((t) => t.dataset.lang === savedLang);
+        if (remembered) select(remembered);
+      });
+    });
   </script>
 </head>
 <body class="min-h-screen bg-background text-foreground" hx-headers='{"X-CSRF-Token": "<%= csrfToken %>"}'>
@@ -72,7 +110,6 @@
              ? [{ href: '/admin/password', label: 'Change password' }]
              : [
                  { href: '/admin/keycloak', label: 'Keycloak profiles' },
-                 { href: '/admin/signing', label: 'Signing certificate' },
                  { href: '/admin/accounts', label: 'Administrators' },
                  { href: '/admin/password', label: 'Change password' },
                ]; %>
@@ -121,7 +158,7 @@
         <a href="/#features" class="btn" data-variant="ghost" data-size="sm">Features</a>
         <a href="/#test-login" class="btn" data-variant="ghost" data-size="sm">How testing works</a>
         <a href="/troubleshooting" class="btn" data-variant="ghost" data-size="sm">Troubleshooting</a>
-        <a href="/tools/decode" class="btn" data-variant="ghost" data-size="sm">SAML decoder</a>
+        <a href="/tools/decode" class="btn" data-variant="ghost" data-size="sm">Decoders</a>
       </nav>
       <div class="ml-auto flex items-center gap-2">
         <%# Don't offer a link to the page you're already on. %>

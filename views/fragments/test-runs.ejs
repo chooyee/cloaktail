@@ -1,0 +1,18 @@
+<%# An application's recent test logins. Expects `app` and `runs`. %>
+<% if (runs.length) { %>
+  <div class="table-container rounded-lg border">
+    <table class="table">
+      <thead><tr><th>When</th><th>Result</th><th>Summary</th><th></th></tr></thead>
+      <tbody>
+        <% for (const run of runs) { %>
+          <tr>
+            <td class="whitespace-nowrap"><%= new Date(run.created_at + 'Z').toLocaleString() %></td>
+            <td><span class="badge" data-variant="<%= run.ok ? 'outline' : 'destructive' %>"><%= run.ok ? 'Passed' : 'Failed' %></span></td>
+            <td class="max-w-md truncate"><%= run.summary %></td>
+            <td class="text-right"><a class="btn" data-variant="ghost" data-size="sm" href="/apps/<%= app.id %>/tests/<%= run.id %>">Details</a></td>
+          </tr>
+        <% } %>
+      </tbody>
+    </table>
+  </div>
+<% } %>

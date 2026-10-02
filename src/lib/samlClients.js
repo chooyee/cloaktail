@@ -19,7 +19,39 @@ export const USER_ATTRIBUTES = {
   username: 'Username',
 };
 
+// The URN Keycloak puts in the assertion for each Name ID format (Keycloak's "username" is unspecified).
+export const NAME_ID_FORMAT_URNS = {
+  username: 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified',
+  email: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
+  persistent: 'urn:oasis:names:tc:SAML:2.0:nameid-format:persistent',
+  transient: 'urn:oasis:names:tc:SAML:2.0:nameid-format:transient',
+};
+
 export const ATTRIBUTE_NAME_FORMATS = ['Basic', 'URI Reference', 'Unspecified'];
+export const ATTRIBUTE_NAME_FORMAT_URNS = {
+  Basic: 'urn:oasis:names:tc:SAML:2.0:attrname-format:basic',
+  'URI Reference': 'urn:oasis:names:tc:SAML:2.0:attrname-format:uri',
+  Unspecified: 'urn:oasis:names:tc:SAML:2.0:attrname-format:unspecified',
+};
+
+// A certificate as PEM, from the bare base64 DER Keycloak publishes.
+export const certToPem = (base64) => `-----BEGIN CERTIFICATE-----\n${base64.match(/.{1,64}/g).join('\n')}\n-----END CERTIFICATE-----\n`;
+
+// How Keycloak encrypts the key of an encrypted assertion (saml.encryption.keyAlgorithm and
+// .digestMethod). Keycloak's default, RSA-OAEP 1.1 with SHA-256, can't be decrypted by node-saml
+// (passport-saml) and several other libraries; RSA-OAEP with MGF1 and SHA-1 works with all of them.
+export const ENCRYPTION_KEY_ALGORITHMS = {
+  'rsa-oaep-mgf1p': {
+    label: 'RSA-OAEP, SHA-1 (widest support, including passport-saml)',
+    keyAlgorithm: 'http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p',
+    digestMethod: 'http://www.w3.org/2000/09/xmldsig#sha1',
+  },
+  'rsa-oaep-11': {
+    label: 'RSA-OAEP 1.1, SHA-256 (Keycloak default)',
+    keyAlgorithm: 'http://www.w3.org/2009/xmlenc11#rsa-oaep',
+    digestMethod: 'http://www.w3.org/2001/04/xmlenc#sha256',
+  },
+};
 
 const MAPPER_PREFIX = 'portal-attr-';
 
@@ -36,6 +68,7 @@ export const defaultAppValues = () => ({
   signingCert: '',
   encryptAssertions: false,
   encryptionCert: '',
+  encryptionKeyAlgorithm: 'rsa-oaep-mgf1p',
   attributes: ['email', 'firstName', 'lastName'],
   attributeNameFormat: 'Basic',
 });
@@ -56,6 +89,7 @@ export function parseAppForm(body) {
     signingCert: str(body.signingCert),
     encryptAssertions: body.encryptAssertions === 'on',
     encryptionCert: str(body.encryptionCert),
+    encryptionKeyAlgorithm: str(body.encryptionKeyAlgorithm),
     attributes: [].concat(body.attributes ?? []).filter((a) => a in USER_ATTRIBUTES),
     attributeNameFormat: str(body.attributeNameFormat),
   };
@@ -76,7 +110,7 @@ export function normalizeCert(value) {
   const body = value.replace(/-----(BEGIN|END) CERTIFICATE-----/g, '').replace(/\s+/g, '');
   if (!body) return null;
   try {
-    new crypto.X509Certificate(`-----BEGIN CERTIFICATE-----\n${body.match(/.{1,64}/g).join('\n')}\n-----END CERTIFICATE-----`);
+    new crypto.X509Certificate(certToPem(body));
     return body;
   } catch {
     return null;
@@ -104,6 +138,8 @@ export function validateApp(values, { isNew }) {
     if (!cert) return 'Paste a valid X.509 signing certificate (PEM) for your app, or turn off "Require signed requests".';
     values.signingCert = cert;
   }
+  values.encryptionKeyAlgorithm ||= defaultAppValues().encryptionKeyAlgorithm;
+  if (!Object.hasOwn(ENCRYPTION_KEY_ALGORITHMS, values.encryptionKeyAlgorithm)) return 'Choose an encryption key algorithm.';
   if (values.encryptAssertions) {
     const cert = normalizeCert(values.encryptionCert);
     if (!cert) return 'Paste a valid X.509 encryption certificate (PEM) for your app, or turn off encryption.';
@@ -152,6 +188,8 @@ function toClientRep(values, owner) {
       'saml.signing.certificate': values.clientSignature ? values.signingCert : '',
       'saml.encrypt': String(values.encryptAssertions),
       'saml.encryption.certificate': values.encryptAssertions ? values.encryptionCert : '',
+      'saml.encryption.keyAlgorithm': ENCRYPTION_KEY_ALGORITHMS[values.encryptionKeyAlgorithm].keyAlgorithm,
+      'saml.encryption.digestMethod': ENCRYPTION_KEY_ALGORITHMS[values.encryptionKeyAlgorithm].digestMethod,
       'saml.force.post.binding': 'true',
       'saml.authnstatement': 'true',
     },
@@ -179,6 +217,8 @@ export function fromClientRep(rep, mappers = []) {
     signingCert: a['saml.signing.certificate'] || '',
     encryptAssertions: a['saml.encrypt'] === 'true',
     encryptionCert: a['saml.encryption.certificate'] || '',
+    // Clients without the attribute use Keycloak's default.
+    encryptionKeyAlgorithm: a['saml.encryption.keyAlgorithm'] === ENCRYPTION_KEY_ALGORITHMS['rsa-oaep-mgf1p'].keyAlgorithm ? 'rsa-oaep-mgf1p' : 'rsa-oaep-11',
     attributes: ours.map((m) => m.config['user.attribute']).filter((x) => x in USER_ATTRIBUTES),
     attributeNameFormat: ours[0]?.config['attribute.nameformat'] || 'Basic',
   };
@@ -190,6 +230,7 @@ export async function valuesFromMetadata(xml) {
   if (rep.protocol && rep.protocol !== 'saml') throw new KeycloakError('That is not SAML SP metadata.', 400);
   const values = { ...defaultAppValues(), ...fromClientRep(rep) };
   values.attributes = defaultAppValues().attributes;
+  values.encryptionKeyAlgorithm = defaultAppValues().encryptionKeyAlgorithm;
   // Keycloak's converter leaves signing on only when the metadata asks for it; keep the portal's safe default.
   if (!values.signDocuments && !values.signAssertions) values.signDocuments = true;
   if (!values.name || values.name === values.clientId) values.name = '';
@@ -223,14 +264,14 @@ export async function loadSamlClient(kcId) {
 
 const ignoreNotFound = (err) => { if (!(err instanceof KeycloakError && err.status === 404)) throw err; };
 
-export async function deleteSamlClient(kcId) {
+export async function deleteSandboxClient(kcId) {
   await sandboxAdmin.deleteClient(kcId).catch(ignoreNotFound);
 }
 
-// Removes a developer's sandbox clients and test users (used when their account is deleted).
+// Removes a developer's sandbox clients (SAML and OIDC) and test users (used when their account is deleted).
 export async function deleteOwnerResources(owner) {
   for (const app of await listApps({ owner })) {
-    await deleteSamlClient(app.kc_id);
+    await deleteSandboxClient(app.kc_id);
     await deleteApp(app.id);
   }
   for (const tu of await listTestUsers(owner)) {
