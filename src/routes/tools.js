@@ -9,6 +9,14 @@ import { requirePermission } from '../middleware.js';
 export const toolsRouter = express.Router();
 toolsRouter.use(requirePermission('apps.own'));
 
+// Public tools, open without signing in. The SAML decoder runs entirely in the browser, so pasted
+// requests and responses (which can hold personal data) never reach the server.
+export const publicToolsRouter = express.Router();
+publicToolsRouter.get('/decode', (req, res) => res.render('pages/tools/decode', {
+  title: 'SAML decoder',
+  description: 'Decode a SAMLRequest or SAMLResponse into readable XML: base64 for the HTTP-POST binding, base64 then DEFLATE for the Redirect binding. Runs in your browser.',
+}));
+
 const KEY_SIZES = [2048, 3072, 4096];
 const VALIDITY_YEARS = [1, 2, 3, 5];
 const WINDOW_MS = 10 * 60 * 1000;

@@ -10,7 +10,7 @@ import { rolesRouter } from './routes/roles.js';
 import { registerRouter } from './routes/register.js';
 import { appsRouter, testAcsRouter } from './routes/apps.js';
 import { testUsersRouter } from './routes/testUsers.js';
-import { toolsRouter } from './routes/tools.js';
+import { toolsRouter, publicToolsRouter } from './routes/tools.js';
 import { adminRouter } from './routes/admin.js';
 import { config, tenantContext } from './config.js';
 import { tenantForOrigin } from './keycloakProfiles.js';
@@ -156,6 +156,7 @@ app.use('/users', requireAuth, usersRouter);
 app.use('/roles', requireAuth, rolesRouter);
 app.use('/apps', requireAuth, appsRouter);
 app.use('/test-users', requireAuth, testUsersRouter);
+app.use('/tools', publicToolsRouter);
 app.use('/tools', requireAuth, toolsRouter);
 app.use('/admin', adminRouter);
 

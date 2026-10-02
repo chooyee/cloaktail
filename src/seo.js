@@ -5,7 +5,7 @@ import * as content from './content.js';
 
 // The public pages search engines may index; everything else is noindex (see app.js).
 export const indexedPaths = ({ registrationEnabled = config.registration.enabled } = {}) => [
-  '/', '/troubleshooting', ...content.problems.map((p) => `/troubleshooting/${p.slug}`), '/disclaimer',
+  '/', '/troubleshooting', ...content.problems.map((p) => `/troubleshooting/${p.slug}`), '/tools/decode', '/disclaimer',
   ...(registrationEnabled ? ['/register'] : []),
 ];
 

@@ -1,0 +1,189 @@
+<%- include('../../partials/header') %>
+<h1 class="text-2xl font-semibold">SAML decoder</h1>
+<p class="mt-1 max-w-2xl text-muted-foreground">
+  Turn a <code>SAMLRequest</code> or <code>SAMLResponse</code> into readable XML. Paste the whole redirect URL, a form body,
+  or just the encoded value: base64 (HTTP-POST binding) and base64 + DEFLATE (Redirect binding) are both detected.
+</p>
+
+<div class="alert mt-6" role="note">
+  <h2>Decoded in your browser</h2>
+  <section>
+    What you paste is never sent to the server. Responses can still hold personal data, so use test users only.
+    <a href="/disclaimer" class="underline underline-offset-4">Disclaimer</a>
+  </section>
+</div>
+
+<div class="mt-6 grid gap-6">
+  <form id="saml-decode" class="card">
+    <header>
+      <h2>Encoded message</h2>
+    </header>
+    <section class="grid gap-4">
+      <div class="field">
+        <label for="saml-input">URL, form body or value</label>
+        <textarea id="saml-input" rows="6" class="font-mono text-xs" spellcheck="false" autocomplete="off"
+                  placeholder="https://idp.example.com/saml?SAMLRequest=nVPBjpsw…&amp;RelayState=…"></textarea>
+      </div>
+      <p id="saml-error" class="hidden text-sm text-destructive" role="alert"></p>
+    </section>
+    <footer class="flex justify-end gap-2">
+      <button type="button" class="btn" data-variant="outline" id="saml-clear">Clear</button>
+      <button type="submit" class="btn">Decode</button>
+    </footer>
+  </form>
+
+  <div id="saml-result" class="hidden grid gap-6 lg:grid-cols-[22rem_1fr]">
+    <div class="card self-start">
+      <header>
+        <h2 id="saml-kind"></h2>
+        <p id="saml-binding"></p>
+      </header>
+      <section>
+        <dl id="saml-summary" class="grid grid-cols-[8rem_1fr] gap-x-4 gap-y-2 text-sm"></dl>
+      </section>
+    </div>
+    <div class="card min-w-0">
+      <header><h2>XML</h2></header>
+      <section>
+        <div class="relative">
+          <pre class="max-h-[32rem] overflow-auto rounded-lg bg-muted p-4 text-xs"><code id="saml-xml"></code></pre>
+          <button type="button" class="btn absolute right-4 top-2" data-variant="outline" data-size="xs" id="saml-copy">Copy</button>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const NS = { samlp: 'urn:oasis:names:tc:SAML:2.0:protocol', saml: 'urn:oasis:names:tc:SAML:2.0:assertion', ds: 'http://www.w3.org/2000/09/xmldsig#' };
+
+  // Finds the SAML message and binding parameters in a URL, a form body or a bare value.
+  function extract(raw) {
+    const input = raw.trim();
+    const query = /^https?:\/\//i.test(input) ? input.slice(input.indexOf('?') + 1).split('#')[0]
+      : /(^|&)(SAMLRequest|SAMLResponse)=/.test(input) ? input : null;
+    if (query === null) return { value: /%[0-9A-F]{2}/i.test(input) ? decodeURIComponent(input) : input, params: {} };
+    const params = Object.fromEntries(new URLSearchParams(query));
+    const name = 'SAMLResponse' in params ? 'SAMLResponse' : 'SAMLRequest' in params ? 'SAMLRequest' : null;
+    if (!name) throw new Error('No SAMLRequest or SAMLResponse parameter found.');
+    return { name, value: params[name], params };
+  }
+
+  function base64Bytes(value) {
+    // A "+" left unencoded in a URL arrives as a space; line breaks are just wrapping.
+    const clean = value.replace(/ /g, '+').replace(/[\r\n\t]/g, '').replace(/-/g, '+').replace(/_/g, '/');
+    let bin;
+    try { bin = atob(clean + '='.repeat((4 - (clean.length % 4)) % 4)); } catch { throw new Error('Not valid base64.'); }
+    return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  }
+
+  async function inflate(bytes, format) {
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format));
+    return new TextDecoder().decode(await new Response(stream).arrayBuffer());
+  }
+
+  // POST binding: plain base64. Redirect binding: raw DEFLATE (some libraries add a zlib header).
+  async function decode(value) {
+    const bytes = base64Bytes(value);
+    const text = new TextDecoder().decode(bytes);
+    if (text.trimStart().startsWith('<')) return { xml: text, binding: 'HTTP-POST (base64)' };
+    for (const format of ['deflate-raw', 'deflate']) {
+      try { return { xml: await inflate(bytes, format), binding: 'HTTP-Redirect (base64 + DEFLATE)' }; } catch { /* next */ }
+    }
+    throw new Error('Decoded base64, but the result is neither XML nor DEFLATE-compressed XML.');
+  }
+
+  function pretty(node, depth = 0) {
+    const pad = '  '.repeat(depth);
+    if (node.nodeType === Node.TEXT_NODE) return node.nodeValue.trim() ? pad + node.nodeValue.trim() : '';
+    if (node.nodeType !== Node.ELEMENT_NODE) return '';
+    const attrs = Array.from(node.attributes, (a) => ` ${a.name}="${a.value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`).join('');
+    const kids = Array.from(node.childNodes).filter((n) => n.nodeType === Node.ELEMENT_NODE || n.nodeValue?.trim());
+    if (!kids.length) return `${pad}<${node.nodeName}${attrs}/>`;
+    if (kids.length === 1 && kids[0].nodeType === Node.TEXT_NODE) {
+      return `${pad}<${node.nodeName}${attrs}>${kids[0].nodeValue.trim().replace(/&/g, '&amp;').replace(/</g, '&lt;')}</${node.nodeName}>`;
+    }
+    return [`${pad}<${node.nodeName}${attrs}>`, ...kids.map((k) => pretty(k, depth + 1)).filter(Boolean), `${pad}</${node.nodeName}>`].join('\n');
+  }
+
+  function summarize(root, params) {
+    const first = (ns, name, scope = root) => scope.getElementsByTagNameNS(ns, name)[0] || null;
+    const direct = (ns, name, el = root) => Array.from(el?.children || []).find((c) => c.namespaceURI === ns && c.localName === name) || null;
+    const rows = [
+      ['ID', root.getAttribute('ID')],
+      ['Issued at', root.getAttribute('IssueInstant')],
+      ['Issuer', direct(NS.saml, 'Issuer')?.textContent.trim()],
+      ['Destination', root.getAttribute('Destination')],
+      ['ACS URL', root.getAttribute('AssertionConsumerServiceURL')],
+      ['Protocol binding', root.getAttribute('ProtocolBinding')?.split(':').pop()],
+      ['In response to', root.getAttribute('InResponseTo')],
+      ['Status', first(NS.samlp, 'StatusCode')?.getAttribute('Value')?.split(':').pop()],
+      ['Status message', first(NS.samlp, 'StatusMessage')?.textContent.trim()],
+      ['Name ID', first(NS.saml, 'NameID')?.textContent.trim()],
+      ['Name ID format', (first(NS.saml, 'NameID') || first(NS.samlp, 'NameIDPolicy'))?.getAttribute('Format')?.split(':').pop()],
+      ['Audience', Array.from(root.getElementsByTagNameNS(NS.saml, 'Audience'), (a) => a.textContent.trim()).join(', ')],
+      ['Authn context', first(NS.saml, 'AuthnContextClassRef')?.textContent.trim().split(':').pop()],
+      ['Signed', direct(NS.ds, 'Signature') ? 'Message' : null],
+      ['Encrypted', first(NS.saml, 'EncryptedAssertion') ? 'Assertion is encrypted' : null],
+      ['Relay state', params.RelayState],
+      ['Signature alg.', params.SigAlg?.split('#').pop()],
+    ];
+    const assertion = first(NS.saml, 'Assertion');
+    if (assertion && direct(NS.ds, 'Signature', assertion)) rows[13][1] = rows[13][1] ? 'Message and assertion' : 'Assertion';
+    for (const a of root.getElementsByTagNameNS(NS.saml, 'Attribute')) {
+      rows.push([a.getAttribute('FriendlyName') || a.getAttribute('Name'),
+        Array.from(a.getElementsByTagNameNS(NS.saml, 'AttributeValue'), (v) => v.textContent.trim()).join(', ')]);
+    }
+    return rows.filter(([, v]) => v);
+  }
+
+  function showError(message) {
+    $('saml-error').textContent = message;
+    $('saml-error').classList.toggle('hidden', !message);
+  }
+
+  $('saml-decode').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    showError('');
+    $('saml-result').classList.add('hidden');
+    try {
+      const { value, params } = extract($('saml-input').value);
+      if (!value) throw new Error('Paste a SAML message first.');
+      const { xml, binding } = await decode(value);
+      const doc = new DOMParser().parseFromString(xml, 'application/xml');
+      if (doc.getElementsByTagName('parsererror').length) throw new Error('Decoded, but the result is not well-formed XML.');
+      const root = doc.documentElement;
+
+      $('saml-kind').textContent = root.localName;
+      $('saml-binding').textContent = binding;
+      const dl = $('saml-summary');
+      dl.replaceChildren();
+      for (const [label, val] of summarize(root, params)) {
+        const dt = document.createElement('dt');
+        dt.className = 'text-muted-foreground';
+        dt.textContent = label;
+        const dd = document.createElement('dd');
+        dd.className = 'break-all font-mono text-xs';
+        dd.textContent = val;
+        dl.append(dt, dd);
+      }
+      const formatted = (xml.trimStart().startsWith('<?xml') ? '<?xml version="1.0"?>\n' : '') + pretty(root);
+      $('saml-xml').textContent = formatted;
+      $('saml-copy').dataset.copy = formatted;
+      $('saml-result').classList.remove('hidden');
+    } catch (err) {
+      showError(err.message);
+    }
+  });
+
+  $('saml-clear').addEventListener('click', () => {
+    $('saml-input').value = '';
+    showError('');
+    $('saml-result').classList.add('hidden');
+    $('saml-input').focus();
+  });
+})();
+</script>
+<%- include('../../partials/footer') %>
