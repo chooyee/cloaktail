@@ -1,26 +1,35 @@
 <%- include('../../partials/header') %>
 <% const action = isNew ? '/apps' : `/apps/${app.id}`; %>
-<a href="<%= isNew ? '/apps' : `/apps/${app.id}` %>" class="text-sm text-muted-foreground hover:underline">← <%= isNew ? 'Applications' : app.name %></a>
-<h1 class="mt-2 text-2xl font-semibold"><%= isNew ? 'Register application' : 'Edit application' %></h1>
-<p class="mt-1 text-muted-foreground">Creates an OpenID Connect client for your app in the <code><%= sandboxRealm %></code> sandbox realm.</p>
-<% if (isNew) { %><%- include('../../fragments/protocol-tabs', { protocol: 'oidc' }) %><% } %>
+<header class="page-header">
+  <div class="min-w-0">
+    <h1 class="page-title"><%= isNew ? 'Register application' : `Edit ${app.name}` %></h1>
+    <p class="page-description">Creates an OpenID Connect client for your app in the <code><%= sandboxRealm %></code> sandbox realm.</p>
+  </div>
+  <% if (isNew) { %><div class="page-actions"><%- include('../../fragments/protocol-tabs', { protocol: 'oidc' }) %></div><% } %>
+</header>
 
-<div id="app-page" class="mt-6 grid gap-6 lg:grid-cols-[1fr_22rem]">
+<div id="app-page">
   <% if (isNew && quotaReached) { %>
-    <div class="alert lg:col-span-2" data-variant="destructive" role="alert">
+    <div class="alert mt-6" data-variant="destructive" role="alert">
       <section>You have reached the limit of <%= maxApps %> applications. Delete one before registering another.</section>
     </div>
   <% } %>
 
-  <form class="card" method="post" action="<%= action %>" hx-post="<%= action %>"
+  <form method="post" action="<%= action %>" hx-post="<%= action %>"
         hx-target="#app-page" hx-select="#app-page" hx-swap="outerHTML">
     <input type="hidden" name="_csrf" value="<%= csrfToken %>">
     <input type="hidden" name="protocol" value="oidc">
-    <section class="grid gap-6">
-      <%- include('../../fragments/form-status') %>
+    <div class="has-[*]:mt-6"><%- include('../../fragments/form-status') %></div>
 
-      <fieldset class="fieldset gap-4">
-        <legend class="text-sm font-semibold">Application</legend>
+    <section class="page-section border-t-0">
+      <div class="section-intro">
+        <h2>Application</h2>
+        <p>Its name in the portal, the client ID your app sends, and how it authenticates.</p>
+      </div>
+      <div class="section-body">
+        <fieldset class="card min-w-0 py-5">
+          <legend class="sr-only">Application</legend>
+          <div class="grid gap-5 px-5">
         <div class="field">
           <label for="name">Name</label>
           <input id="name" name="name" type="text" required maxlength="80" value="<%= values.name %>" placeholder="My Billing App">
@@ -40,10 +49,20 @@
           </select>
           <p>Confidential clients authenticate with a client secret, shown on the application page. Public clients can’t keep a secret, so they rely on PKCE.</p>
         </div>
-      </fieldset>
+          </div>
+        </fieldset>
+      </div>
+    </section>
 
-      <fieldset class="fieldset gap-4">
-        <legend class="text-sm font-semibold">URLs</legend>
+    <section class="page-section">
+      <div class="section-intro">
+        <h2>URLs</h2>
+        <p>Where Keycloak may send users back. The portal also allows its own test redirect URI, <code class="break-all"><%= testUrl %></code>, so “Test connection” works.</p>
+      </div>
+      <div class="section-body">
+        <fieldset class="card min-w-0 py-5">
+          <legend class="sr-only">URLs</legend>
+          <div class="grid gap-5 px-5">
         <div class="field">
           <label for="redirectUris">Redirect URIs</label>
           <textarea id="redirectUris" name="redirectUris" rows="3" required class="font-mono text-xs" spellcheck="false"
@@ -66,10 +85,20 @@
           <label for="homeUrl">Home URL <span class="text-muted-foreground">(optional)</span></label>
           <input id="homeUrl" name="homeUrl" type="url" value="<%= values.homeUrl %>" placeholder="https://myapp.example.com/">
         </div>
-      </fieldset>
+          </div>
+        </fieldset>
+      </div>
+    </section>
 
-      <fieldset class="fieldset gap-4">
-        <legend class="text-sm font-semibold">Security</legend>
+    <section class="page-section">
+      <div class="section-intro">
+        <h2>Security</h2>
+        <p>Tokens carry the claims of the realm’s default client scopes: <code>profile</code>, <code>email</code> and <code>roles</code>. The test login shows exactly what your app receives.</p>
+      </div>
+      <div class="section-body">
+        <fieldset class="card min-w-0 py-5">
+          <legend class="sr-only">Security</legend>
+          <div class="grid gap-5 px-5">
         <div class="field" data-orientation="horizontal">
           <input type="checkbox" role="switch" id="requirePkce" name="requirePkce" <%= values.requirePkce ? 'checked' : '' %>>
           <section>
@@ -84,30 +113,15 @@
             <p>Lets a confidential client get tokens for itself, without a user. Ignored for public clients.</p>
           </section>
         </div>
-      </fieldset>
+          </div>
+        </fieldset>
+      </div>
     </section>
-    <footer class="flex justify-end gap-2">
+    <div class="sticky bottom-0 z-10 -mx-4 flex justify-end gap-2 border-t bg-background/95 px-4 py-4 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-10 lg:px-10">
       <a href="<%= isNew ? '/apps' : `/apps/${app.id}` %>" class="btn" data-variant="outline">Cancel</a>
       <button type="submit" class="btn" <%= isNew && quotaReached ? 'disabled' : '' %>><%= isNew ? 'Register application' : 'Save changes' %></button>
-    </footer>
+    </div>
   </form>
 
-  <div class="grid gap-6 self-start">
-    <div class="card">
-      <header>
-        <h2>Portal test redirect URI</h2>
-        <p>The portal also adds this URL to your client’s redirect URIs so “Test connection” can receive the authorization code.</p>
-      </header>
-      <section>
-        <code class="block break-all rounded bg-muted p-2 text-xs"><%= testUrl %></code>
-      </section>
-    </div>
-    <div class="card">
-      <header>
-        <h2>Claims</h2>
-        <p>Tokens carry the claims of the realm’s default client scopes: <code>profile</code> (name, preferred_username…), <code>email</code> and <code>roles</code>. The test login shows exactly what your app will receive.</p>
-      </header>
-    </div>
-  </div>
 </div>
 <%- include('../../partials/footer') %>

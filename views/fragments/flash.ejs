@@ -1,4 +1,5 @@
-<div class="alert mb-6" <%- type === 'error' ? 'data-variant="destructive"' : '' %> role="<%= type === 'error' ? 'alert' : 'status' %>">
+<div class="alert mb-6" <%- type === 'error' ? 'data-variant="destructive"' : 'data-tone="success"' %> role="<%= type === 'error' ? 'alert' : 'status' %>">
+  <%- icon(type === 'error' ? 'alert' : 'check') %>
   <h2><%= type === 'error' ? 'Error' : 'Done' %></h2>
   <section><%= message %></section>
 </div>

@@ -1,26 +1,32 @@
 <%- include('../partials/header') %>
 <div id="test-users">
-  <h1 class="text-2xl font-semibold">Test users</h1>
-  <p class="mt-1 text-muted-foreground">
-    Accounts in the <code><%= realm %></code> sandbox realm to sign in with during “Test connection”.
-    <%= users.length %> of <%= max %> used.
-  </p>
+  <header class="page-header">
+    <div class="min-w-0">
+      <h1 class="page-title">Test users</h1>
+      <p class="page-description">Accounts in the <code><%= realm %></code> sandbox realm to sign in with during “Test connection”.</p>
+    </div>
+    <div class="w-36 text-xs text-muted-foreground">
+      <p class="mb-1"><span class="font-medium text-foreground"><%= users.length %></span> of <%= max %> used</p>
+      <div class="meter"><span style="width: <%= Math.min(100, Math.round((users.length / Math.max(max, 1)) * 100)) %>%"></span></div>
+    </div>
+  </header>
 
   <div class="mt-6">
     <%- include('../fragments/form-status') %>
   </div>
 
-  <div class="mt-4 grid gap-6 lg:grid-cols-[1fr_22rem]">
+  <div class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
     <div class="self-start">
       <% if (users.length === 0) { %>
-        <div class="empty rounded-lg border border-dashed">
+        <div class="empty rounded-xl border border-dashed bg-background" data-tone="success">
           <header>
+            <span class="icon-tile mx-auto mb-2"><%- icon('testUser') %></span>
             <h3>No test users yet</h3>
             <p>Create one to sign in with when testing your applications.</p>
           </header>
         </div>
       <% } else { %>
-        <div class="table-container rounded-lg border">
+        <div class="card card-table"><section>
           <table class="table">
             <thead><tr><th>Username</th><th>Name</th><th>Email</th><th class="text-right">Actions</th></tr></thead>
             <tbody>
@@ -28,7 +34,7 @@
                 <tr>
                   <td class="font-medium">
                     <%= u.username %>
-                    <% if (!u.kc) { %><span class="badge ml-1" data-variant="destructive">missing in Keycloak</span><% } %>
+                    <% if (!u.kc) { %><span class="badge ml-1" data-tone="danger">missing in Keycloak</span><% } %>
                   </td>
                   <td><%= u.kc ? [u.kc.firstName, u.kc.lastName].filter(Boolean).join(' ') || '—' : '—' %></td>
                   <td><%= u.kc?.email || '—' %></td>
@@ -52,7 +58,7 @@
               <% } %>
             </tbody>
           </table>
-        </div>
+        </section></div>
       <% } %>
     </div>
 
@@ -86,7 +92,7 @@
         </div>
       </section>
       <footer class="flex justify-end">
-        <button type="submit" class="btn" <%= users.length >= max ? 'disabled' : '' %>>Create test user</button>
+        <button type="submit" class="btn" <%= users.length >= max ? 'disabled' : '' %>><%- icon('plus') %>Create test user</button>
       </footer>
     </form>
   </div>

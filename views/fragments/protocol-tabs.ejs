@@ -1,5 +1,5 @@
 <%# Protocol switch on the register form. Expects `protocol` ('saml' or 'oidc'). %>
-<nav class="mt-4 inline-flex gap-1 rounded-lg bg-muted p-1 text-sm" aria-label="Protocol">
+<nav class="inline-flex gap-1 rounded-lg bg-muted p-1 text-sm" aria-label="Protocol">
   <% for (const [value, label] of [['saml', 'SAML 2.0'], ['oidc', 'OpenID Connect']]) { %>
     <a href="/apps/new<%= value === 'oidc' ? '?protocol=oidc' : '' %>" class="btn" data-size="sm"
        data-variant="<%= protocol === value ? 'outline' : 'ghost' %>" <%- protocol === value ? 'aria-current="page"' : '' %>><%= label %></a>

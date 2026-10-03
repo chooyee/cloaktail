@@ -6,13 +6,16 @@
     ['skip', 'Skip', 'Leave the existing profile alone.'],
   ];
 %>
-<a href="/admin/keycloak" class="text-sm text-muted-foreground hover:underline">← Keycloak profiles</a>
-<h1 class="mt-2 text-2xl font-semibold">Import Keycloak profiles</h1>
-<p class="mt-1 max-w-3xl text-muted-foreground">
+<header class="page-header">
+<div class="min-w-0">
+<h1 class="page-title">Import Keycloak profiles</h1>
+<p class="page-description">
   Load a JSON file exported from CloakTail. Imported profiles serve no domains until you add them; overwriting a profile keeps its domains.
 </p>
+</div>
+</header>
 
-<form class="card mt-6 max-w-3xl" method="post" action="/admin/keycloak/import">
+<form class="card mt-8 max-w-3xl" method="post" action="/admin/keycloak/import">
   <input type="hidden" name="_csrf" value="<%= csrfToken %>">
   <section class="grid gap-6">
     <% if (error) { %>
@@ -24,7 +27,7 @@
       </div>
     <% } %>
     <% if (result) { %>
-      <div class="alert" role="status">
+      <div class="alert" data-tone="success" role="status">
         <h2>Import finished</h2>
         <section>
           <ul class="list-disc pl-4">

@@ -1,5 +1,5 @@
 <div id="users-table">
-  <div class="table-container rounded-lg border">
+  <div class="card card-table"><section>
     <table class="table">
       <thead>
         <tr>
@@ -20,8 +20,8 @@
             <td><%= [u.firstName, u.lastName].filter(Boolean).join(' ') || '—' %></td>
             <td><%= u.email || '—' %></td>
             <td>
-              <% if (u.enabled) { %><span class="badge" data-variant="outline">Enabled</span>
-              <% } else { %><span class="badge" data-variant="destructive">Disabled</span><% } %>
+              <% if (u.enabled) { %><span class="badge" data-tone="success">Enabled</span>
+              <% } else { %><span class="badge" data-tone="danger">Disabled</span><% } %>
             </td>
             <td>
               <div class="flex flex-wrap gap-1">
@@ -33,7 +33,7 @@
         <% } %>
       </tbody>
     </table>
-  </div>
+  </section></div>
 
   <div class="mt-4 flex items-center justify-between text-sm text-muted-foreground">
     <span><%= total %> user<%= total === 1 ? '' : 's' %> · page <%= page %> of <%= pageCount %></span>

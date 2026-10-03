@@ -20,6 +20,8 @@ import { KeycloakError } from './lib/keycloakAdmin.js';
 import * as content from './content.js';
 import * as seo from './seo.js';
 import { highlight } from './lib/highlight.js';
+import { icon } from './lib/icons.js';
+import { navigation } from './lib/nav.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const app = express();
@@ -37,6 +39,8 @@ app.locals.indexable = false;
 app.locals.canonicalUrl = config.baseUrl;
 app.locals.content = content;
 app.locals.highlight = highlight;
+app.locals.icon = icon;
+app.locals.navigation = navigation;
 
 // Every request is served by the Keycloak profile mapped to its domain (admin console), and runs in
 // its context: config.keycloak/sandbox/saml and the database are that profile's. The Host header is

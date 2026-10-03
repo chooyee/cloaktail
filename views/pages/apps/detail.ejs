@@ -1,179 +1,193 @@
 <%- include('../../partials/header') %>
-<a href="/apps" class="text-sm text-muted-foreground hover:underline">← Applications</a>
-<div class="mt-2 flex flex-wrap items-center justify-between gap-4">
-  <div>
-    <div class="flex items-center gap-3">
-      <h1 class="text-2xl font-semibold"><%= app.name %></h1>
-      <span class="badge" data-variant="secondary">SAML</span>
-      <% if (!enabled) { %><span class="badge" data-variant="destructive">Disabled in Keycloak</span><% } %>
+<header class="page-header">
+  <div class="min-w-0">
+    <div class="flex flex-wrap items-center gap-2">
+      <h1 class="page-title"><%= app.name %></h1>
+      <span class="badge" data-variant="outline">SAML 2.0</span>
+      <% if (!enabled) { %><span class="badge" data-tone="danger">Disabled in Keycloak</span><% } %>
     </div>
-    <p class="mt-1 font-mono text-sm text-muted-foreground break-all"><%= app.client_id %></p>
+    <p class="mt-1.5 break-all font-mono text-sm text-muted-foreground"><%= app.client_id %></p>
     <% if (app.owner !== user.username) { %><p class="mt-1 text-sm text-muted-foreground">Owner: <%= app.owner %></p><% } %>
   </div>
-  <% if (canEdit) { %>
-    <a href="/apps/<%= app.id %>/edit" class="btn" data-variant="outline">Edit settings</a>
-  <% } %>
-</div>
+  <div class="page-actions">
+    <% if (canEdit) { %>
+      <a href="/apps/<%= app.id %>/edit" class="btn" data-variant="outline"><%- icon('sliders') %>Edit settings</a>
+    <% } %>
+    <form method="post" action="/apps/<%= app.id %>/test">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <button type="submit" class="btn" <%= values.clientSignature ? 'disabled' : '' %>><%- icon('play') %>Run test login</button>
+    </form>
+  </div>
+</header>
 
 <% if (created) { %>
-  <div class="alert mt-6" role="status">
+  <div class="alert mt-6" data-tone="success" role="status">
+    <%- icon('check') %>
     <h2>Application registered</h2>
-    <section>Keycloak created client <code><%= app.client_id %></code> in realm <code><%= idp.realm %></code>. Run a test login below.</section>
+    <section>Keycloak created client <code><%= app.client_id %></code> in realm <code><%= idp.realm %></code>. Run a test login to check it.</section>
   </div>
 <% } %>
 
-<div class="mt-6 grid gap-6 lg:grid-cols-2">
-  <%# ---------- Test connection ---------- %>
-  <div class="card lg:col-span-2">
-    <header>
-      <h2>Test connection</h2>
-      <p>The portal sends a login request as <code><%= app.client_id %></code>. Sign in with one of your test users, then see exactly what Keycloak returned.</p>
-    </header>
-    <section class="grid gap-4">
-      <% if (values.clientSignature) { %>
-        <div class="alert" role="status"><section>
-          This client requires signed requests, which only your app can produce, so the portal can’t start a test login.
-          <% if (idpInitiatedUrl) { %>Use the IdP-initiated link below to test through your own app.<% } %>
-        </section></div>
-      <% } else if (testUserCount === 0 && app.owner === user.username) { %>
-        <div class="alert" role="status"><section>
-          You have no test users yet. <a class="underline underline-offset-4" href="/test-users">Create one</a> to sign in with during the test.
-        </section></div>
-      <% } %>
-      <form method="post" action="/apps/<%= app.id %>/test">
-        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-        <button type="submit" class="btn" <%= values.clientSignature ? 'disabled' : '' %>>Run test login</button>
-      </form>
-
-      <%- include('../../fragments/test-runs') %>
-    </section>
+<%# ---------- Test connection ---------- %>
+<section id="test" class="page-section">
+  <div class="section-intro">
+    <h2>Test connection</h2>
+    <p>The portal sends a login request as this client. Sign in with one of your test users, then see exactly what Keycloak returned.</p>
   </div>
+  <div class="section-body">
+    <% if (values.clientSignature) { %>
+      <div class="alert" data-tone="warning" role="status"><%- icon('alert') %><section>
+        This client requires signed requests, which only your app can produce, so the portal can’t start a test login.
+        <% if (idpInitiatedUrl) { %>Use the IdP-initiated link below to test through your own app.<% } %>
+      </section></div>
+    <% } else if (testUserCount === 0 && app.owner === user.username) { %>
+      <div class="alert" data-tone="warning" role="status"><%- icon('info') %><section>
+        You have no test users yet. <a class="underline underline-offset-4" href="/test-users">Create one</a> to sign in with during the test.
+      </section></div>
+    <% } %>
+    <%- include('../../fragments/test-runs') %>
+  </div>
+</section>
 
-  <%# ---------- IdP details ---------- %>
-  <div class="card">
-    <header>
-      <h2>Keycloak (IdP) details</h2>
-      <p>Configure these in your app’s SAML library.</p>
-    </header>
-    <section>
-      <dl class="grid gap-4">
-        <%- include('../../fragments/copy-row', { label: 'IdP metadata URL', value: idp.metadataUrl }) %>
-        <%- include('../../fragments/copy-row', { label: 'IdP entity ID (issuer)', value: idp.entityId }) %>
-        <%- include('../../fragments/copy-row', { label: 'Single sign-on URL (HTTP-POST and Redirect)', value: idp.ssoUrl }) %>
-        <%- include('../../fragments/copy-row', { label: 'Single logout URL', value: idp.sloUrl }) %>
-        <% if (idpInitiatedUrl) { %>
-          <%- include('../../fragments/copy-row', { label: 'IdP-initiated login (sends the user to your ACS)', value: idpInitiatedUrl }) %>
-        <% } %>
-        <% if (idp.cert) { %>
-          <div class="grid gap-1">
-            <div class="flex items-center justify-between gap-2">
-              <dt class="text-sm text-muted-foreground"><label for="idp-cert-pem">Signing certificate (PEM)</label></dt>
-              <div class="flex gap-1">
-                <button type="button" class="btn" data-variant="ghost" data-size="xs" data-copy="<%= idp.certPem %>">Copy</button>
-                <button type="button" class="btn" data-variant="outline" data-size="xs" data-download="keycloak-<%= idp.realm %>-idp.pem" data-source="#idp-cert-pem">Download</button>
+<%# ---------- IdP details ---------- %>
+<section id="keycloak" class="page-section">
+  <div class="section-intro">
+    <h2>Keycloak (IdP)</h2>
+    <p>Configure these in your app’s SAML library. The metadata URL alone is enough for most libraries.</p>
+  </div>
+  <div class="section-body">
+    <div class="card py-5">
+      <section class="px-5">
+        <dl class="grid gap-4">
+          <%- include('../../fragments/copy-row', { label: 'IdP metadata URL', value: idp.metadataUrl }) %>
+          <%- include('../../fragments/copy-row', { label: 'IdP entity ID (issuer)', value: idp.entityId }) %>
+          <%- include('../../fragments/copy-row', { label: 'Single sign-on URL (HTTP-POST and Redirect)', value: idp.ssoUrl }) %>
+          <%- include('../../fragments/copy-row', { label: 'Single logout URL', value: idp.sloUrl }) %>
+          <% if (idpInitiatedUrl) { %>
+            <%- include('../../fragments/copy-row', { label: 'IdP-initiated login (sends the user to your ACS)', value: idpInitiatedUrl }) %>
+          <% } %>
+          <% if (idp.cert) { %>
+            <div class="grid gap-1">
+              <div class="flex items-center justify-between gap-2">
+                <dt class="text-sm text-muted-foreground"><label for="idp-cert-pem">Signing certificate (PEM)</label></dt>
+                <div class="flex gap-1">
+                  <button type="button" class="btn" data-variant="ghost" data-size="xs" data-copy="<%= idp.certPem %>">Copy</button>
+                  <button type="button" class="btn" data-variant="outline" data-size="xs" data-download="keycloak-<%= idp.realm %>-idp.pem" data-source="#idp-cert-pem">Download</button>
+                </div>
               </div>
+              <dd><textarea id="idp-cert-pem" rows="5" readonly class="w-full font-mono text-xs"><%= idp.certPem %></textarea></dd>
             </div>
-            <dd><textarea id="idp-cert-pem" rows="5" readonly class="w-full font-mono text-xs"><%= idp.certPem %></textarea></dd>
-          </div>
-          <%- include('../../fragments/copy-row', { label: 'Signing certificate (bare base64, for libraries that want it without the PEM lines)', value: idp.cert }) %>
-        <% } else { %>
-          <p class="text-sm text-destructive">Could not read the signing certificate from Keycloak. Use the metadata URL instead.</p>
-        <% } %>
-      </dl>
-    </section>
-  </div>
-
-  <%# ---------- SP settings ---------- %>
-  <div class="card">
-    <header>
-      <h2>Your app (SP) settings</h2>
-      <p>What Keycloak expects from your app.</p>
-    </header>
-    <section>
-      <dl class="grid grid-cols-[10rem_1fr] gap-x-4 gap-y-2 text-sm">
-        <dt class="text-muted-foreground">Entity ID</dt><dd class="break-all font-mono text-xs"><%= values.clientId %></dd>
-        <dt class="text-muted-foreground">ACS URL</dt><dd class="break-all font-mono text-xs"><%= values.acsUrl %></dd>
-        <dt class="text-muted-foreground">Logout URL</dt><dd class="break-all font-mono text-xs"><%= values.sloUrl || '—' %></dd>
-        <dt class="text-muted-foreground">Name ID format</dt>
-        <dd><%= NAME_ID_FORMATS[values.nameIdFormat] %><span class="block break-all font-mono text-xs text-muted-foreground"><%= NAME_ID_FORMAT_URNS[values.nameIdFormat] %></span></dd>
-        <dt class="text-muted-foreground">Attributes</dt>
-        <dd class="flex flex-wrap gap-1">
-          <% for (const a of values.attributes) { %><span class="badge" data-variant="secondary"><%= a %></span><% } %>
-          <% if (!values.attributes.length) { %>—<% } %>
-        </dd>
-        <dt class="text-muted-foreground">Attribute name format</dt>
-        <dd><%= values.attributeNameFormat %><span class="block break-all font-mono text-xs text-muted-foreground"><%= ATTRIBUTE_NAME_FORMAT_URNS[values.attributeNameFormat] %></span></dd>
-        <dt class="text-muted-foreground">Signed</dt>
-        <dd><%= [values.signDocuments && 'response', values.signAssertions && 'assertion'].filter(Boolean).join(' + ') %></dd>
-        <dt class="text-muted-foreground">Signed requests</dt><dd><%= values.clientSignature ? 'Required' : 'Not required' %></dd>
-        <dt class="text-muted-foreground">Encryption</dt><dd><%= values.encryptAssertions ? `Assertions encrypted · ${ENCRYPTION_KEY_ALGORITHMS[values.encryptionKeyAlgorithm].label}` : 'Off' %></dd>
-      </dl>
-    </section>
-  </div>
-
-  <%# ---------- What the app must do ---------- %>
-  <div class="card lg:col-span-2">
-    <header>
-      <h2>Protocol details</h2>
-      <p>What your SAML library must do to talk to this client. Most of it is in the IdP metadata; the rest is listed here.</p>
-    </header>
-    <section>
-      <dl class="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[12rem_1fr]">
-        <dt class="font-medium">Request binding</dt>
-        <dd class="text-muted-foreground">Send the AuthnRequest to the single sign-on URL with HTTP-Redirect or HTTP-POST.</dd>
-        <dt class="font-medium">Response binding</dt>
-        <dd class="text-muted-foreground">Keycloak always <strong class="text-foreground">POSTs</strong> the SAML response (HTTP-POST binding) to your ACS URL, so its route must accept POST. With a session cookie set to <code>SameSite=Lax</code> or stricter, that POST arrives without it.</dd>
-        <dt class="font-medium">Name ID</dt>
-        <dd class="text-muted-foreground">Keycloak always sends <code class="break-all"><%= NAME_ID_FORMAT_URNS[values.nameIdFormat] %></code>, whatever format the request asks for. Set your library to request this format (or none) so it doesn’t reject the response.</dd>
-        <dt class="font-medium">Signatures</dt>
-        <dd class="text-muted-foreground">RSA-SHA256 with exclusive XML canonicalization. Validate with the IdP signing certificate above, or from the metadata URL so key rotation is picked up.</dd>
-        <% if (values.clientSignature) { %>
-          <dt class="font-medium text-foreground">Signed requests <span class="badge ml-1">Required</span></dt>
-          <dd class="text-muted-foreground">
-            Sign every AuthnRequest and LogoutRequest with the private key of the signing certificate you uploaded; Keycloak rejects unsigned requests with “Invalid requester”.
-            Use <strong class="text-foreground">RSA-SHA256</strong>: many libraries sign with SHA-1 by default (passport-saml does), which Keycloak still accepts but which is deprecated.
-          </dd>
-        <% } %>
-        <% if (values.encryptAssertions) { %>
-          <dt class="font-medium text-foreground">Encrypted assertions <span class="badge ml-1">On</span></dt>
-          <dd class="text-muted-foreground">
-            Keycloak encrypts each assertion with the encryption certificate you uploaded. Give your library the matching <strong class="text-foreground">private key</strong> to decrypt it
-            (<code>decryptionPvk</code> in passport-saml); without it, sign-in fails with “No decryption key for encrypted SAML response”.
-            The assertion’s key is encrypted with <code class="break-all"><%= ENCRYPTION_KEY_ALGORITHMS[values.encryptionKeyAlgorithm].keyAlgorithm %></code>
-            (digest <code class="break-all"><%= ENCRYPTION_KEY_ALGORITHMS[values.encryptionKeyAlgorithm].digestMethod %></code>).
-            <% if (values.encryptionKeyAlgorithm !== 'rsa-oaep-mgf1p') { %>
-              <span class="mt-1 block text-destructive">passport-saml (node-saml) can’t decrypt this and fails with “key encryption algorithm … not supported”. <% if (canEdit) { %><a href="/apps/<%= app.id %>/edit" class="underline underline-offset-4">Edit the settings</a> and<% } else { %>Ask the owner to<% } %> choose “RSA-OAEP, SHA-1” as the encryption key algorithm.</span>
-            <% } %>
-          </dd>
-        <% } %>
-        <dt class="font-medium">Your metadata</dt>
-        <dd class="text-muted-foreground">Keycloak doesn’t read your SP metadata at runtime: this client already holds your entity ID, ACS URL<%= values.clientSignature || values.encryptAssertions ? ' and certificates' : '' %>. Change them here, not in your metadata.</dd>
-      </dl>
-    </section>
-  </div>
-
-  <%# ---------- Example config ---------- %>
-  <div class="card lg:col-span-2">
-    <header>
-      <h2>Example code</h2>
-      <p>Complete for this client’s settings<%= values.clientSignature || values.encryptAssertions ? ', including the keys your app must hold' : '' %>. Other SAML libraries take the same values.</p>
-    </header>
-    <section>
-      <%- include('../../fragments/code-samples', { id: 'saml-example', samples: codeSamples }) %>
-    </section>
-  </div>
-
-  <% if (canEdit) { %>
-    <div class="card lg:col-span-2">
-      <header>
-        <h2>Delete application</h2>
-        <p>Removes the SAML client from Keycloak and its test history from the portal.</p>
-      </header>
-      <footer class="flex justify-end">
-        <button class="btn" data-variant="destructive" hx-post="/apps/<%= app.id %>/delete"
-                hx-confirm="Delete <%= app.name %>? Its Keycloak client is removed immediately.">Delete application</button>
-      </footer>
+            <%- include('../../fragments/copy-row', { label: 'Signing certificate (bare base64, for libraries that want it without the PEM lines)', value: idp.cert }) %>
+          <% } else { %>
+            <p class="text-sm text-destructive">Could not read the signing certificate from Keycloak. Use the metadata URL instead.</p>
+          <% } %>
+        </dl>
+      </section>
     </div>
-  <% } %>
-</div>
+  </div>
+</section>
+
+<%# ---------- SP settings ---------- %>
+<section id="your-app" class="page-section">
+  <div class="section-intro">
+    <h2>Your app (SP)</h2>
+    <p>What Keycloak expects from your app.<% if (canEdit) { %> Change it with <a href="/apps/<%= app.id %>/edit" class="text-primary hover:underline">Edit settings</a>.<% } %></p>
+  </div>
+  <div class="section-body">
+    <div class="card py-5">
+      <section class="px-5">
+        <dl class="kv">
+          <dt>Entity ID</dt><dd class="break-all font-mono text-xs"><%= values.clientId %></dd>
+          <dt>ACS URL</dt><dd class="break-all font-mono text-xs"><%= values.acsUrl %></dd>
+          <dt>Logout URL</dt><dd class="break-all font-mono text-xs"><%= values.sloUrl || '—' %></dd>
+          <dt>Name ID format</dt>
+          <dd><%= NAME_ID_FORMATS[values.nameIdFormat] %><span class="block break-all font-mono text-xs text-muted-foreground"><%= NAME_ID_FORMAT_URNS[values.nameIdFormat] %></span></dd>
+          <dt>Attributes</dt>
+          <dd class="flex flex-wrap gap-1">
+            <% for (const a of values.attributes) { %><span class="badge" data-variant="secondary"><%= a %></span><% } %>
+            <% if (!values.attributes.length) { %>—<% } %>
+          </dd>
+          <dt>Attribute name format</dt>
+          <dd><%= values.attributeNameFormat %><span class="block break-all font-mono text-xs text-muted-foreground"><%= ATTRIBUTE_NAME_FORMAT_URNS[values.attributeNameFormat] %></span></dd>
+          <dt>Signed</dt>
+          <dd><%= [values.signDocuments && 'response', values.signAssertions && 'assertion'].filter(Boolean).join(' + ') || '—' %></dd>
+          <dt>Signed requests</dt><dd><%= values.clientSignature ? 'Required' : 'Not required' %></dd>
+          <dt>Encryption</dt><dd><%= values.encryptAssertions ? `Assertions encrypted · ${ENCRYPTION_KEY_ALGORITHMS[values.encryptionKeyAlgorithm].label}` : 'Off' %></dd>
+        </dl>
+      </section>
+    </div>
+  </div>
+</section>
+
+<%# ---------- What the app must do ---------- %>
+<section id="protocol" class="page-section">
+  <div class="section-intro">
+    <h2>Protocol details</h2>
+    <p>What your SAML library must do to talk to this client. Most of it is in the IdP metadata; the rest is listed here.</p>
+  </div>
+  <div class="section-body">
+    <div class="card py-5">
+      <section class="px-5">
+        <dl class="kv">
+          <dt class="font-medium text-foreground">Request binding</dt>
+          <dd class="text-muted-foreground">Send the AuthnRequest to the single sign-on URL with HTTP-Redirect or HTTP-POST.</dd>
+          <dt class="font-medium text-foreground">Response binding</dt>
+          <dd class="text-muted-foreground">Keycloak always <strong class="text-foreground">POSTs</strong> the SAML response (HTTP-POST binding) to your ACS URL, so its route must accept POST. With a session cookie set to <code>SameSite=Lax</code> or stricter, that POST arrives without it.</dd>
+          <dt class="font-medium text-foreground">Name ID</dt>
+          <dd class="text-muted-foreground">Keycloak always sends <code class="break-all"><%= NAME_ID_FORMAT_URNS[values.nameIdFormat] %></code>, whatever format the request asks for. Set your library to request this format (or none) so it doesn’t reject the response.</dd>
+          <dt class="font-medium text-foreground">Signatures</dt>
+          <dd class="text-muted-foreground">RSA-SHA256 with exclusive XML canonicalization. Validate with the IdP signing certificate above, or from the metadata URL so key rotation is picked up.</dd>
+          <% if (values.clientSignature) { %>
+            <dt class="font-medium text-foreground">Signed requests <span class="badge ml-1" data-tone="warning">Required</span></dt>
+            <dd class="text-muted-foreground">
+              Sign every AuthnRequest and LogoutRequest with the private key of the signing certificate you uploaded; Keycloak rejects unsigned requests with “Invalid requester”.
+              Use <strong class="text-foreground">RSA-SHA256</strong>: many libraries sign with SHA-1 by default (passport-saml does), which Keycloak still accepts but which is deprecated.
+            </dd>
+          <% } %>
+          <% if (values.encryptAssertions) { %>
+            <dt class="font-medium text-foreground">Encrypted assertions <span class="badge ml-1" data-tone="warning">On</span></dt>
+            <dd class="text-muted-foreground">
+              Keycloak encrypts each assertion with the encryption certificate you uploaded. Give your library the matching <strong class="text-foreground">private key</strong> to decrypt it
+              (<code>decryptionPvk</code> in passport-saml); without it, sign-in fails with “No decryption key for encrypted SAML response”.
+              The assertion’s key is encrypted with <code class="break-all"><%= ENCRYPTION_KEY_ALGORITHMS[values.encryptionKeyAlgorithm].keyAlgorithm %></code>
+              (digest <code class="break-all"><%= ENCRYPTION_KEY_ALGORITHMS[values.encryptionKeyAlgorithm].digestMethod %></code>).
+              <% if (values.encryptionKeyAlgorithm !== 'rsa-oaep-mgf1p') { %>
+                <span class="mt-1 block text-destructive">passport-saml (node-saml) can’t decrypt this and fails with “key encryption algorithm … not supported”. <% if (canEdit) { %><a href="/apps/<%= app.id %>/edit" class="underline underline-offset-4">Edit the settings</a> and<% } else { %>Ask the owner to<% } %> choose “RSA-OAEP, SHA-1” as the encryption key algorithm.</span>
+              <% } %>
+            </dd>
+          <% } %>
+          <dt class="font-medium text-foreground">Your metadata</dt>
+          <dd class="text-muted-foreground">Keycloak doesn’t read your SP metadata at runtime: this client already holds your entity ID, ACS URL<%= values.clientSignature || values.encryptAssertions ? ' and certificates' : '' %>. Change them here, not in your metadata.</dd>
+        </dl>
+      </section>
+    </div>
+  </div>
+</section>
+
+<%# ---------- Example config ---------- %>
+<section id="code" class="page-section">
+  <div class="section-intro">
+    <h2>Example code</h2>
+    <p>Complete for this client’s settings<%= values.clientSignature || values.encryptAssertions ? ', including the keys your app must hold' : '' %>. Other SAML libraries take the same values.</p>
+  </div>
+  <div class="section-body">
+    <%- include('../../fragments/code-samples', { id: 'saml-example', samples: codeSamples }) %>
+  </div>
+</section>
+
+<% if (canEdit) { %>
+  <section id="danger" class="page-section">
+    <div class="section-intro">
+      <h2>Delete application</h2>
+      <p>Removes the SAML client from Keycloak and its test history from the portal.</p>
+    </div>
+    <div class="section-body">
+      <div class="card flex-row flex-wrap items-center justify-between gap-4 p-5 ring-destructive/30">
+        <p class="text-sm text-muted-foreground">The Keycloak client is removed immediately. This can’t be undone.</p>
+        <button class="btn" data-variant="destructive" hx-post="/apps/<%= app.id %>/delete"
+                hx-confirm="Delete <%= app.name %>? Its Keycloak client is removed immediately."><%- icon('trash') %>Delete application</button>
+      </div>
+    </div>
+  </section>
+<% } %>
 <%- include('../../partials/footer') %>

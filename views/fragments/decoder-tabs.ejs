@@ -1,5 +1,5 @@
 <%# Switch between the decoders. Expects `current` ('saml' or 'jwt'). %>
-<nav class="mt-4 inline-flex gap-1 rounded-lg bg-muted p-1 text-sm" aria-label="Decoders">
+<nav class="inline-flex gap-1 rounded-lg bg-muted p-1 text-sm" aria-label="Decoders">
   <% for (const [value, label, href] of [['saml', 'SAML', '/tools/decode'], ['jwt', 'JWT (OIDC)', '/tools/decode/jwt']]) { %>
     <a href="<%= href %>" class="btn" data-size="sm" data-variant="<%= current === value ? 'outline' : 'ghost' %>"
        <%- current === value ? 'aria-current="page"' : '' %>><%= label %></a>

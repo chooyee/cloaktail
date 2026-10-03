@@ -1,18 +1,22 @@
 <%# An application's recent test logins. Expects `app` and `runs`. %>
 <% if (runs.length) { %>
-  <div class="table-container rounded-lg border">
-    <table class="table">
-      <thead><tr><th>When</th><th>Result</th><th>Summary</th><th></th></tr></thead>
-      <tbody>
-        <% for (const run of runs) { %>
-          <tr>
-            <td class="whitespace-nowrap"><%= new Date(run.created_at + 'Z').toLocaleString() %></td>
-            <td><span class="badge" data-variant="<%= run.ok ? 'outline' : 'destructive' %>"><%= run.ok ? 'Passed' : 'Failed' %></span></td>
-            <td class="max-w-md truncate"><%= run.summary %></td>
-            <td class="text-right"><a class="btn" data-variant="ghost" data-size="sm" href="/apps/<%= app.id %>/tests/<%= run.id %>">Details</a></td>
-          </tr>
-        <% } %>
-      </tbody>
-    </table>
+  <div class="card card-table">
+    <section>
+      <table class="table">
+        <thead><tr><th class="pl-5">When</th><th>Result</th><th>Summary</th><th class="pr-5"><span class="sr-only">Details</span></th></tr></thead>
+        <tbody>
+          <% for (const run of runs) { %>
+            <tr>
+              <td class="whitespace-nowrap pl-5 text-muted-foreground"><%= new Date(run.created_at + 'Z').toLocaleString() %></td>
+              <td><span class="badge" data-tone="<%= run.ok ? 'success' : 'danger' %>"><%- icon(run.ok ? 'check' : 'x', 'size-3') %><%= run.ok ? 'Passed' : 'Failed' %></span></td>
+              <td class="max-w-md truncate"><%= run.summary %></td>
+              <td class="pr-5 text-right"><a class="btn" data-variant="ghost" data-size="sm" href="/apps/<%= app.id %>/tests/<%= run.id %>">Details</a></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </section>
   </div>
+<% } else { %>
+  <p class="rounded-lg border border-dashed px-5 py-6 text-center text-sm text-muted-foreground">No test logins yet. Use <strong class="font-medium text-foreground">Run test login</strong> above to try one.</p>
 <% } %>

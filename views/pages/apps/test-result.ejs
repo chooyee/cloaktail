@@ -1,20 +1,28 @@
 <%- include('../../partials/header') %>
 <% const r = run.result, d = r.details; %>
-<a href="/apps/<%= app.id %>" class="text-sm text-muted-foreground hover:underline">← <%= app.name %></a>
-<div class="mt-2 flex flex-wrap items-center justify-between gap-4">
-  <div>
-    <div class="flex items-center gap-3">
-      <h1 class="text-2xl font-semibold">Test result</h1>
-      <span class="badge" data-variant="<%= run.ok ? 'outline' : 'destructive' %>"><%= run.ok ? 'Passed' : 'Failed' %></span>
+<header class="page-header">
+  <div class="min-w-0">
+    <div class="flex flex-wrap items-center gap-2">
+      <h1 class="page-title">Test result</h1>
+      <span class="badge" data-tone="<%= run.ok ? 'success' : 'danger' %>"><%- icon(run.ok ? 'check' : 'x', 'size-3') %><%= run.ok ? 'Passed' : 'Failed' %></span>
+      <span class="badge" data-variant="outline">SAML 2.0</span>
     </div>
-    <p class="mt-1 text-sm text-muted-foreground">
-      <%= new Date(run.created_at + 'Z').toLocaleString() %> · started by <%= r.startedBy %> · <%= run.summary %>
+    <p class="page-description">
+      <a href="/apps/<%= app.id %>" class="font-medium text-foreground hover:underline"><%= app.name %></a> · <%= new Date(run.created_at + 'Z').toLocaleString() %> · started by <%= r.startedBy %> · <%= run.summary %>
     </p>
   </div>
-  <form method="post" action="/apps/<%= app.id %>/test">
+  <form class="page-actions" method="post" action="/apps/<%= app.id %>/test">
+    <a href="/apps/<%= app.id %>" class="btn" data-variant="outline">Back to application</a>
     <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-    <button type="submit" class="btn">Run again</button>
+    <button type="submit" class="btn"><%- icon('play') %>Run again</button>
   </form>
+</header>
+
+<% const failedChecks = r.checks.filter((c) => c.ok === false).length, passedChecks = r.checks.filter((c) => c.ok === true).length; %>
+<div class="alert mt-6" data-tone="<%= run.ok ? 'success' : 'danger' %>" role="status">
+  <%- icon(run.ok ? 'check' : 'alert') %>
+  <h2><%= run.ok ? 'Login succeeded' : 'Login failed' %></h2>
+  <section><%= passedChecks %> check<%= passedChecks === 1 ? '' : 's' %> passed<%= failedChecks ? `, ${failedChecks} failed` : '' %>. <%= run.ok ? 'This is what your app will receive for this user.' : 'Fix the failed checks below, then run the test again.' %></section>
 </div>
 
 <div class="mt-6 grid gap-6 lg:grid-cols-2">
@@ -24,9 +32,8 @@
       <ul class="grid gap-3">
         <% for (const c of r.checks) { %>
           <li class="flex items-start gap-3">
-            <span class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-bold
-                         <%= c.ok === true ? 'bg-primary text-primary-foreground' : c.ok === false ? 'bg-destructive text-white' : 'border text-muted-foreground' %>"
-                  aria-label="<%= c.ok === true ? 'passed' : c.ok === false ? 'failed' : 'info' %>"><%= c.ok === true ? '✓' : c.ok === false ? '✕' : 'i' %></span>
+            <span class="marker mt-0.5 size-5" data-tone="<%= c.ok === true ? 'success' : c.ok === false ? 'danger' : 'neutral' %>"
+                  role="img" aria-label="<%= c.ok === true ? 'passed' : c.ok === false ? 'failed' : 'info' %>"><%- icon(c.ok === true ? 'check' : c.ok === false ? 'x' : 'info', 'size-3') %></span>
             <div class="min-w-0">
               <p class="text-sm font-medium"><%= c.label %></p>
               <p class="break-words text-sm text-muted-foreground"><%= c.detail %></p>

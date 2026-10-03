@@ -1,9 +1,12 @@
 <%- include('../../partials/header') %>
-<a href="/users" class="text-sm text-muted-foreground hover:underline">← Users</a>
-<h1 class="mt-2 text-2xl font-semibold">New user</h1>
-<p class="mt-1 text-muted-foreground">Creates the account in Keycloak and assigns app roles here.</p>
+<header class="page-header">
+  <div class="min-w-0">
+    <h1 class="page-title">New user</h1>
+    <p class="page-description">Creates the account in Keycloak and assigns app roles here.</p>
+  </div>
+</header>
 
-<form id="user-form" class="card mt-6 max-w-2xl" method="post" action="/users"
+<form id="user-form" class="card mt-8 max-w-2xl" method="post" action="/users"
       hx-post="/users" hx-target="#user-form" hx-select="#user-form" hx-swap="outerHTML">
   <input type="hidden" name="_csrf" value="<%= csrfToken %>">
   <section class="grid gap-6">

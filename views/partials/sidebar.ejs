@@ -1,0 +1,38 @@
+<%#
+  Sidebar of the signed-in portal and the admin console: labelled nav groups, then the sandbox realm and the account.
+  Expects `nav` (from navigation() in src/lib/nav.js). Rendered twice: in the desktop sidebar and in the mobile menu.
+%>
+<% const who = nav.adminArea
+     ? { name: admin.username, detail: 'Administrator', signOut: '/admin/logout' }
+     : { name: [user.firstName, user.lastName].filter(Boolean).join(' ') || user.username, detail: user.email || user.username, signOut: '/logout' };
+   const initials = who.name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase(); %>
+<nav class="grid min-h-0 flex-1 content-start gap-6 overflow-y-auto px-3 py-5" aria-label="<%= nav.adminArea ? 'Admin console' : 'Main' %>">
+  <% for (const g of nav.groups) { %>
+    <div>
+      <p class="nav-label"><%= g.label %></p>
+      <ul class="grid gap-0.5">
+        <% for (const l of g.links) { %>
+          <li><a href="<%= l.href %>" class="nav-link" <%- l.active ? 'aria-current="page"' : '' %>><%- icon(l.icon) %><%= l.label %></a></li>
+        <% } %>
+      </ul>
+    </div>
+  <% } %>
+</nav>
+<div class="grid gap-3 border-t p-3">
+  <% if (!nav.adminArea) { %>
+    <p class="flex items-center justify-between gap-2 px-1 text-xs text-muted-foreground">
+      Sandbox realm <code class="truncate rounded bg-background px-1.5 py-0.5 text-foreground ring-1 ring-border"><%= sandboxRealm %></code>
+    </p>
+  <% } %>
+  <div class="flex items-center gap-3">
+    <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground" aria-hidden="true"><%= initials %></span>
+    <div class="min-w-0 flex-1 text-sm">
+      <p class="truncate font-medium"><%= who.name %></p>
+      <p class="truncate text-xs text-muted-foreground"><%= who.detail %></p>
+    </div>
+    <form method="post" action="<%= who.signOut %>">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <button type="submit" class="btn" data-variant="ghost" data-size="icon-sm" title="Sign out" aria-label="Sign out"><%- icon('logout') %></button>
+    </form>
+  </div>
+</div>
