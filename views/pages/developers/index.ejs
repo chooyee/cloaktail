@@ -1,0 +1,260 @@
+<%
+  const startHref = user ? '/api-credentials' : (registrationEnabled ? '/register' : '/login?returnTo=%2Fapi-credentials');
+  const startLabel = user ? 'Create an API credential' : (registrationEnabled ? 'Create a free account' : 'Sign in to get a credential');
+  const envBlock = '# .env.cloaktail (git-ignored)\nCLOAKTAIL_CLIENT_ID=ctc_…\nCLOAKTAIL_CLIENT_SECRET=cts_…';
+  const prompt = `Add OpenID Connect login to this app with CloakTail. Read ${siteUrl}/api/v1/agent.md first. My API credential is in CLOAKTAIL_CLIENT_ID and CLOAKTAIL_CLIENT_SECRET.`;
+  const TONES = { GET: 'info', POST: 'success', PUT: 'warning', PATCH: 'warning', DELETE: 'danger' };
+  const method = (m) => `<span class="method" data-tone="${TONES[m]}">${m}</span>`;
+  const sections = [['capabilities', 'What it does'], ['setup', 'Set up'], ['agent-run', 'What your agent does'], ['for-agents', 'Built for agents'], ['security', 'Security'], ['faq', 'FAQ'], ['guide', 'Agent guide']];
+%>
+<%- include('../../partials/header', { structuredData, headLinks, keywords, fullBleed: true }) %>
+
+<%# ================= Hero ================= %>
+<section class="border-b bg-[radial-gradient(ellipse_at_top,var(--color-muted),transparent_60%)]">
+  <div class="mx-auto grid max-w-6xl items-center gap-12 px-4 py-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:py-20">
+    <div class="min-w-0">
+      <nav aria-label="Breadcrumb" class="text-sm text-muted-foreground">
+        <ol class="flex flex-wrap gap-2">
+          <li><a href="/" class="hover:text-foreground hover:underline">CloakTail</a></li>
+          <li aria-hidden="true">/</li>
+          <li aria-current="page">Developers</li>
+        </ol>
+      </nav>
+      <h1 class="mt-4 text-4xl leading-[1.1] font-semibold tracking-tight text-balance sm:text-5xl">Keycloak SSO, set up by your AI coding agent</h1>
+      <p class="mt-5 max-w-xl text-lg leading-relaxed text-muted-foreground text-pretty">
+        A REST API for everything in CloakTail: register OpenID Connect and SAML clients, read their secrets, migrate users and
+        verify logins. Documented precisely enough that Claude Code, Cursor or any coding agent can do the whole integration, and
+        hand you a test login to check.
+      </p>
+      <div class="mt-8 flex flex-wrap gap-3">
+        <a href="<%= startHref %>" class="btn" data-size="lg"><%= startLabel %></a>
+        <a href="/developers/api" class="btn" data-variant="outline" data-size="lg">API reference</a>
+      </div>
+      <ul class="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground">
+        <li class="flex items-center gap-1.5"><%- icon('check', 'size-4 text-emerald-500') %>OpenAPI 3.1</li>
+        <li class="flex items-center gap-1.5"><%- icon('check', 'size-4 text-emerald-500') %>Agent guide in Markdown</li>
+        <li class="flex items-center gap-1.5"><%- icon('check', 'size-4 text-emerald-500') %>Sandbox only, never production</li>
+      </ul>
+    </div>
+
+    <%# What an agent session looks like: the calls it makes, in order. %>
+    <figure class="code-window min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-lg">
+      <div class="flex items-center gap-1.5 border-b border-zinc-800 px-4 py-2.5">
+        <span class="size-2.5 rounded-full bg-zinc-700"></span><span class="size-2.5 rounded-full bg-zinc-700"></span><span class="size-2.5 rounded-full bg-zinc-700"></span>
+        <span class="ml-2 text-xs text-zinc-400">coding agent</span>
+      </div>
+      <div class="grid gap-3 p-5 font-mono text-xs leading-relaxed">
+        <p><span class="text-emerald-400">›</span> Add OpenID Connect login to this app with CloakTail. Read …/api/v1/agent.md first.</p>
+        <ol class="grid gap-1.5 text-zinc-300">
+          <% for (const [m, path, what] of agentRun) { %>
+            <li class="flex gap-2">
+              <% if (m) { %><span class="w-12 shrink-0 text-sky-400"><%= m %></span><span class="truncate"><%= path %></span>
+              <% } else { %><span class="w-12 shrink-0 text-amber-300">edit</span><span class="truncate text-zinc-400"><%= what.replace(/\.$/, '') %></span><% } %>
+            </li>
+          <% } %>
+        </ol>
+        <p class="text-zinc-400">Open the test link and sign in as <span class="text-zinc-100">api-tester</span>. I’ll read the result.</p>
+      </div>
+      <figcaption class="sr-only">An example agent session: the CloakTail API calls a coding agent makes to add OpenID Connect login.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<%# ================= In-page navigation ================= %>
+<nav aria-label="On this page" class="sticky top-14 z-[5] border-b bg-background/90 backdrop-blur">
+  <ul class="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4 py-2 text-sm">
+    <% for (const [id, label] of sections) { %>
+      <li><a href="#<%= id %>" class="btn whitespace-nowrap" data-variant="ghost" data-size="sm"><%= label %></a></li>
+    <% } %>
+  </ul>
+</nav>
+
+<%# ================= Capabilities ================= %>
+<section id="capabilities" class="scroll-mt-28">
+  <div class="mx-auto max-w-6xl px-4 py-16">
+    <div class="max-w-2xl">
+      <p class="text-sm font-medium text-muted-foreground">What it does</p>
+      <h2 class="mt-2 text-3xl font-semibold tracking-tight">Everything in the portal, as an API</h2>
+      <p class="mt-3 text-muted-foreground"><%= devSummary %></p>
+    </div>
+    <div class="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <% for (const c of capabilities) { %>
+        <article id="cap-<%= c.id %>" class="flex flex-col rounded-xl border bg-background p-5">
+          <span class="icon-tile"><%- icon(c.icon) %></span>
+          <h3 class="mt-4 font-semibold"><%= c.title %></h3>
+          <p class="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground"><%= c.text %></p>
+          <ul class="mt-4 grid gap-1.5 border-t pt-4 font-mono text-xs">
+            <% for (const [m, path] of c.endpoints) { %><li class="flex items-center gap-2"><%- method(m) %><span class="truncate"><%= path %></span></li><% } %>
+          </ul>
+          <p class="mt-3 text-xs text-muted-foreground">Scope <code><%= c.scope %></code></p>
+        </article>
+      <% } %>
+    </div>
+  </div>
+</section>
+
+<%# ================= Setup ================= %>
+<section id="setup" class="scroll-mt-28 border-t bg-muted/30">
+  <div class="mx-auto max-w-6xl px-4 py-16">
+    <div class="max-w-2xl">
+      <p class="text-sm font-medium text-muted-foreground">Set up</p>
+      <h2 class="mt-2 text-3xl font-semibold tracking-tight">Three steps, about two minutes</h2>
+    </div>
+    <ol class="mt-10 grid gap-4 lg:grid-cols-3">
+      <% devSteps.forEach((s, i) => { %>
+        <li class="flex flex-col rounded-xl border bg-background p-5">
+          <span class="marker" data-done><%= i + 1 %></span>
+          <h3 class="mt-3 font-semibold"><%= s.title %></h3>
+          <p class="mt-2 text-sm leading-relaxed text-muted-foreground"><%= s.text %></p>
+          <% if (i === 0) { %>
+            <a href="<%= startHref %>" class="mt-4 inline-flex items-center gap-1 text-sm font-medium hover:underline"><%= startLabel %> <%- icon('arrowRight') %></a>
+          <% } else if (i === 1) { %>
+            <pre class="mt-4 overflow-x-auto rounded-lg bg-zinc-950 px-3 py-2 text-xs text-zinc-100"><code><%= envBlock %></code></pre>
+          <% } else { %>
+            <div class="mt-4 flex items-start gap-2">
+              <pre class="min-w-0 flex-1 whitespace-pre-wrap rounded-lg bg-zinc-950 px-3 py-2 text-xs text-zinc-100"><%= prompt %></pre>
+              <button type="button" class="btn" data-variant="outline" data-size="xs" data-copy="<%= prompt %>">Copy</button>
+            </div>
+          <% } %>
+        </li>
+      <% }) %>
+    </ol>
+  </div>
+</section>
+
+<%# ================= What the agent does ================= %>
+<section id="agent-run" class="scroll-mt-28 border-t">
+  <div class="mx-auto grid max-w-6xl gap-10 px-4 py-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+    <div>
+      <p class="text-sm font-medium text-muted-foreground">What your agent does</p>
+      <h2 class="mt-2 text-3xl font-semibold tracking-tight">From one sentence to a verified login</h2>
+      <p class="mt-3 text-muted-foreground">
+        For “add OpenID Connect login”, the agent follows the guide’s recipe. You do one thing: sign in with the test link it gives you.
+        Then it reads every check of that login and fixes what failed.
+      </p>
+      <p class="mt-4 text-sm text-muted-foreground">
+        The same works for SAML single sign-on and for <a class="underline" href="#cap-migration">migrating existing users</a>:
+        see the recipes in the <a class="underline" href="#guide">agent guide</a>.
+      </p>
+    </div>
+    <ol class="grid gap-0 rounded-xl border">
+      <% agentRun.forEach(([m, path, what], i) => { %>
+        <li class="flex items-start gap-3 border-b p-4 last:border-b-0">
+          <span class="marker"><%= i + 1 %></span>
+          <div class="min-w-0">
+            <% if (m) { %><p class="flex flex-wrap items-center gap-2 font-mono text-xs"><%- method(m) %><span class="break-all">/api/v1<%= path %></span></p>
+            <% } else { %><p class="font-mono text-xs text-muted-foreground">Edits your code</p><% } %>
+            <p class="mt-1 text-sm"><%= what %></p>
+          </div>
+        </li>
+      <% }) %>
+    </ol>
+  </div>
+</section>
+
+<%# ================= Built for agents ================= %>
+<section id="for-agents" class="scroll-mt-28 border-t bg-muted/30">
+  <div class="mx-auto max-w-6xl px-4 py-16">
+    <div class="max-w-2xl">
+      <p class="text-sm font-medium text-muted-foreground">Built for agents</p>
+      <h2 class="mt-2 text-3xl font-semibold tracking-tight">Specified precisely, so agents get it right</h2>
+      <p class="mt-3 text-muted-foreground">Agents fail on vague docs. These documents leave nothing to guess.</p>
+    </div>
+    <div class="mt-10 grid gap-x-10 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
+      <% for (const c of agentContract) { %>
+        <div>
+          <h3 class="font-semibold"><%= c.title %></h3>
+          <p class="mt-2 text-sm leading-relaxed text-muted-foreground"><%= c.text %></p>
+        </div>
+      <% } %>
+    </div>
+    <div class="mt-10 overflow-hidden rounded-xl border bg-background">
+      <table class="table">
+        <caption class="sr-only">Machine-readable documents</caption>
+        <thead><tr><th>Document</th><th>For</th><th>URL</th></tr></thead>
+        <tbody>
+          <tr><td class="font-medium">Agent guide</td><td>Coding agents: order of calls, rules, done-when criteria</td><td><a class="font-mono text-xs underline" href="/api/v1/agent.md">/api/v1/agent.md</a></td></tr>
+          <tr><td class="font-medium">OpenAPI 3.1</td><td>Exact schemas, code generators, Postman</td><td><a class="font-mono text-xs underline" href="/api/v1/openapi.json">/api/v1/openapi.json</a></td></tr>
+          <tr><td class="font-medium">API catalog</td><td>Discovery (RFC 9727)</td><td><a class="font-mono text-xs underline" href="/.well-known/api-catalog">/.well-known/api-catalog</a></td></tr>
+          <tr><td class="font-medium">llms.txt</td><td>Answer engines and agents browsing the site</td><td><a class="font-mono text-xs underline" href="/llms.txt">/llms.txt</a></td></tr>
+          <tr><td class="font-medium">User migration protocol</td><td>What an app implements to migrate users</td><td><a class="font-mono text-xs underline" href="/migrate/spec.md">/migrate/spec.md</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<%# ================= Security ================= %>
+<section id="security" class="scroll-mt-28 border-t">
+  <div class="mx-auto grid max-w-6xl gap-10 px-4 py-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+    <div>
+      <p class="text-sm font-medium text-muted-foreground">Security</p>
+      <h2 class="mt-2 text-3xl font-semibold tracking-tight">You decide what an agent may do</h2>
+      <p class="mt-3 text-muted-foreground">An API credential acts as you, only in the sandbox realm, and only within the scopes you give it.</p>
+    </div>
+    <div class="grid gap-6">
+      <div class="grid gap-x-8 gap-y-6 sm:grid-cols-2">
+        <% for (const s of devSecurity) { %>
+          <div class="flex gap-3">
+            <span class="icon-tile"><%- icon('lock') %></span>
+            <div><h3 class="font-semibold"><%= s.title %></h3><p class="mt-1 text-sm leading-relaxed text-muted-foreground"><%= s.text %></p></div>
+          </div>
+        <% } %>
+      </div>
+      <div class="overflow-hidden rounded-xl border">
+        <table class="table">
+          <caption class="sr-only">API credential scopes</caption>
+          <thead><tr><th>Scope</th><th>Allows</th></tr></thead>
+          <tbody>
+            <% for (const [scope, text] of Object.entries(SCOPES)) { %><tr><td><code><%= scope %></code></td><td class="text-sm"><%= text %></td></tr><% } %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<%# ================= FAQ ================= %>
+<section id="faq" class="scroll-mt-28 border-t bg-muted/30">
+  <div class="mx-auto max-w-3xl px-4 py-16">
+    <p class="text-sm font-medium text-muted-foreground">FAQ</p>
+    <h2 class="mt-2 text-3xl font-semibold tracking-tight">Questions developers ask</h2>
+    <div class="mt-8 divide-y rounded-xl border bg-background">
+      <% for (const f of devFaq) { %>
+        <details class="group p-5">
+          <summary class="flex cursor-pointer list-none items-center justify-between gap-4 font-medium">
+            <h3><%= f.q %></h3>
+            <span class="transition-transform group-open:rotate-90"><%- icon('chevronRight') %></span>
+          </summary>
+          <p class="mt-3 text-sm leading-relaxed text-muted-foreground"><%= f.a %></p>
+        </details>
+      <% } %>
+    </div>
+  </div>
+</section>
+
+<%# ================= Agent guide ================= %>
+<section id="guide" class="scroll-mt-28 border-t">
+  <div class="mx-auto grid max-w-6xl gap-10 px-4 py-16 lg:grid-cols-[14rem_minmax(0,1fr)]">
+    <nav aria-label="Agent guide contents" class="hidden lg:block">
+      <div class="sticky top-32">
+        <p class="text-sm font-semibold">Agent guide</p>
+        <ul class="mt-3 grid gap-1.5 text-sm text-muted-foreground">
+          <% for (const h of toc) { %><li><a href="#<%= h.id %>" class="hover:text-foreground"><%= h.text %></a></li><% } %>
+        </ul>
+        <a href="/api/v1/agent.md" class="btn mt-5" data-variant="outline" data-size="sm"><%- icon('file') %>View as Markdown</a>
+      </div>
+    </nav>
+    <article class="doc min-w-0 max-w-3xl">
+      <p class="text-sm font-medium text-muted-foreground">Agent guide</p>
+      <h2 class="!mt-2 text-3xl">The instructions your agent follows</h2>
+      <p>
+        This is <a href="/api/v1/agent.md">/api/v1/agent.md</a>, the document a coding agent reads before it starts. It is written for the
+        agent, and worth a read for you: it says exactly what the agent will do and the rules it follows with your secrets.
+      </p>
+      <%- guideHtml %>
+    </article>
+  </div>
+</section>
+
+<%- include('../../partials/footer') %>

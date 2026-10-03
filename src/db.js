@@ -218,6 +218,16 @@ await migrateToPerProfileData();
 await migrateAppProtocol();
 await dropProfileMigrationTables();
 
+// Users migrated before CloakTail kept its own record (app_migrated_users) are in the request history.
+// Fills in any that are missing: cheap, and a no-op once done.
+await exec(`
+  INSERT INTO app_migrated_users (app_id, legacy_id, keycloak_id, username, migrated_at)
+  SELECT DISTINCT ON (app_id, legacy_id) app_id, legacy_id, keycloak_id, username, updated_at FROM app_migration_events
+  WHERE status IN ('created', 'already_migrated') AND legacy_id IS NOT NULL AND keycloak_id IS NOT NULL AND username IS NOT NULL
+  ORDER BY app_id, legacy_id, id DESC
+  ON CONFLICT (app_id, legacy_id) DO NOTHING
+`);
+
 // Permissions are global (defined in code); roles are per profile (seedRoles).
 await transaction(async () => {
   for (const [key, description] of Object.entries(PERMISSIONS)) {
@@ -542,6 +552,10 @@ export async function startMigrationEvent({ appId, jti, legacyId, username, ip }
   return rowCount === 1;
 }
 
+// Whether the app already sent this request id (for /migrate/check, which doesn't record it).
+export const migrationJtiUsed = async (appId, jti) =>
+  Boolean(await one('SELECT 1 FROM app_migration_events WHERE app_id = $1 AND jti = $2', [appId, jti]));
+
 export async function finishMigrationEvent({ appId, jti, status, keycloakId = null, detail = null }) {
   await exec(`
     UPDATE app_migration_events SET status = $1, keycloak_id = COALESCE($2, keycloak_id), detail = $3, updated_at = ${NOW}
@@ -567,6 +581,53 @@ export async function countMigrationEvents(appId) {
     WHERE app_id = $1 AND status IN ('created', 'already_migrated')`, [appId]);
   return { ...Object.fromEntries(rows.map((r) => [r.status, r.n])), migratedUsers: users };
 }
+
+// Which Keycloak user an application's legacy user became (reached through an app, already scoped).
+export const getMigratedUser = (appId, legacyId) =>
+  one('SELECT * FROM app_migrated_users WHERE app_id = $1 AND legacy_id = $2', [appId, legacyId]);
+
+export const listMigratedUsers = (appId, limit = 200) =>
+  all('SELECT * FROM app_migrated_users WHERE app_id = $1 ORDER BY migrated_at DESC LIMIT $2', [appId, limit]);
+
+// The migrated users of every application a developer owns, newest first, with the app's name.
+export const listMigratedUsersForOwner = (owner, limit = 500) => all(`
+  SELECT m.*, a.name AS app_name, a.client_id AS app_client_id FROM app_migrated_users m JOIN apps a ON a.id = m.app_id
+  WHERE a.profile_id = $1 AND a.owner = $2 ORDER BY m.migrated_at DESC, m.legacy_id LIMIT $3
+`, [currentProfileId(), owner, limit]);
+
+export async function putMigratedUser({ appId, legacyId, keycloakId, username, linkedBy = null }) {
+  await exec(`
+    INSERT INTO app_migrated_users (app_id, legacy_id, keycloak_id, username, linked_by) VALUES ($1, $2, $3, $4, $5)
+    ON CONFLICT (app_id, legacy_id) DO UPDATE SET keycloak_id = excluded.keycloak_id, username = excluded.username,
+      linked_by = excluded.linked_by, migrated_at = ${NOW}
+  `, [appId, legacyId, keycloakId, username, linkedBy]);
+}
+
+export const deleteMigratedUser = (appId, legacyId) =>
+  exec('DELETE FROM app_migrated_users WHERE app_id = $1 AND legacy_id = $2', [appId, legacyId]);
+
+// ---------- developers' API credentials (rows as stored; lib/apiCredentials.js hashes) ----------
+
+export const listApiCredentials = (owner) =>
+  all('SELECT * FROM api_credentials WHERE profile_id = $1 AND owner = $2 ORDER BY created_at DESC, id DESC', [currentProfileId(), owner]);
+export const countApiCredentials = async (owner) =>
+  (await one('SELECT COUNT(*)::int AS n FROM api_credentials WHERE profile_id = $1 AND owner = $2', [currentProfileId(), owner])).n;
+// Looked up by client ID across profiles: the caller checks the profile, so it can say which is wrong.
+export const getApiCredentialByClientId = (clientId) => one('SELECT * FROM api_credentials WHERE client_id = $1', [clientId]);
+export const getApiCredential = async (id) =>
+  (validId(id) ? one('SELECT * FROM api_credentials WHERE id = $1 AND profile_id = $2', [id, currentProfileId()]) : null);
+
+export async function insertApiCredential({ owner, name, clientId, secretHash, scopes, expiresAt }) {
+  return (await one(`
+    INSERT INTO api_credentials (profile_id, owner, name, client_id, secret_hash, scopes, expires_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id
+  `, [currentProfileId(), owner, name, clientId, secretHash, scopes, expiresAt])).id;
+}
+
+export const touchApiCredential = (id) => exec(`UPDATE api_credentials SET last_used_at = ${NOW} WHERE id = $1`, [id]);
+export const deleteApiCredential = (id) => exec('DELETE FROM api_credentials WHERE id = $1 AND profile_id = $2', [id, currentProfileId()]);
+export const deleteOwnerApiCredentials = (owner) =>
+  exec('DELETE FROM api_credentials WHERE profile_id = $1 AND owner = $2', [currentProfileId(), owner]);
 
 // ---------- admin console accounts ----------
 

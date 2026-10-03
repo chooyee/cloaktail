@@ -1,41 +1,59 @@
 import express from 'express';
 import { config } from '../config.js';
-import { sandboxAdmin, KeycloakError } from '../lib/keycloakAdmin.js';
-import { listTestUsers, countTestUsers, getTestUser, insertTestUser, deleteTestUser } from '../db.js';
+import {
+  listTestUsersWithDetails, findOwnTestUser, createTestUser, setTestUserPassword, removeTestUser,
+} from '../services/testUsers.js';
+import { ServiceError } from '../services/errors.js';
 import { requirePermission, sendError } from '../middleware.js';
+import { listMigratedUsersForOwner, getApp, getMigratedUser, deleteMigratedUser } from '../db.js';
+import { sandboxAdmin, KeycloakError } from '../lib/keycloakAdmin.js';
 
 // Developers' own test accounts in the sandbox realm, used to sign in during "Test connection".
 export const testUsersRouter = express.Router();
 testUsersRouter.use(requirePermission('apps.own'));
 
-const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,39}$/;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const max = config.sandbox.maxTestUsersPerDeveloper;
-
-async function withKeycloakDetails(rows) {
-  return Promise.all(rows.map(async (row) => {
-    try {
-      return { ...row, kc: await sandboxAdmin.getUser(row.kc_id) };
-    } catch (err) {
-      if (err instanceof KeycloakError && err.status === 404) return { ...row, kc: null };
-      throw err;
-    }
-  }));
-}
+const MIGRATED_SHOWN = 500;
 
 async function renderPage(req, res, locals = {}) {
-  const users = await withKeycloakDetails(await listTestUsers(req.user.username));
+  const [users, migrated] = await Promise.all([
+    listTestUsersWithDetails(req.user.username),
+    // Users of the developer's applications who moved into the sandbox realm through /migrate.
+    listMigratedUsersForOwner(req.user.username, MIGRATED_SHOWN + 1),
+  ]);
   res.render('pages/test-users', {
-    title: 'Test users', users, max, realm: config.sandbox.realm, values: {}, error: null, message: null, ...locals,
+    title: 'Test users',
+    // Which tab is shown: the developer's own test accounts, or the users their applications migrated.
+    view: req.query.view === 'migrated' ? 'migrated' : 'accounts',
+    users,
+    max,
+    realm: config.sandbox.realm,
+    migrated: migrated.slice(0, MIGRATED_SHOWN),
+    migratedMore: migrated.length > MIGRATED_SHOWN,
+    values: {},
+    error: null,
+    message: null,
+    ...locals,
   });
 }
 
-// Rows are only ever looked up for their owner.
 async function loadOwn(req, res) {
-  const row = await getTestUser(Number(req.params.id));
-  if (row && row.owner === req.user.username) return row;
+  const row = await findOwnTestUser(req.user.username, req.params.id);
+  if (row) return row;
   sendError(req, res, 404, 'Test user not found.');
   return null;
+}
+
+// Runs a service call; a refusal is shown on the page.
+async function attempt(req, res, locals, fn) {
+  try {
+    await fn();
+    return true;
+  } catch (err) {
+    if (!(err instanceof ServiceError)) throw err;
+    await renderPage(req, res, { ...locals, error: err.message });
+    return false;
+  }
 }
 
 testUsersRouter.get('/', (req, res) => renderPage(req, res));
@@ -47,47 +65,58 @@ testUsersRouter.post('/', async (req, res) => {
     firstName: (req.body.firstName || '').trim(),
     lastName: (req.body.lastName || '').trim(),
   };
-  const password = req.body.password || '';
-  const fail = (error) => renderPage(req, res, { values, error });
-
-  if (await countTestUsers(req.user.username) >= max) return fail(`You have reached the limit of ${max} test users. Delete one first.`);
-  if (!USERNAME_RE.test(values.username)) return fail('Username must be 3-40 characters: lowercase letters, digits, . _ -');
-  if (!EMAIL_RE.test(values.email)) return fail('Enter a valid email address.');
-  if (!values.firstName || !values.lastName) return fail('First and last name are required.');
-  if (password.length < 8) return fail('Password must be at least 8 characters.');
-
-  let kcId;
-  try {
-    kcId = await sandboxAdmin.createUser({ ...values, emailVerified: true, password, temporary: false });
-  } catch (err) {
-    if (err instanceof KeycloakError && err.status === 409) return fail('That username or email is already used in the sandbox. Try another.');
-    if (err instanceof KeycloakError && err.status < 500) return fail(err.message);
-    throw err;
-  }
-  await insertTestUser({ owner: req.user.username, kcId, username: values.username });
+  if (!await attempt(req, res, { values }, () => createTestUser(req.user.username, values, req.body.password || ''))) return;
   renderPage(req, res, { message: `Test user ${values.username} created.` });
 });
 
 testUsersRouter.post('/:id/password', async (req, res) => {
   const row = await loadOwn(req, res);
   if (!row) return;
-  const password = req.body.password || '';
-  if (password.length < 8) return renderPage(req, res, { error: 'Password must be at least 8 characters.' });
-  try {
-    await sandboxAdmin.resetPassword(row.kc_id, password, false);
-  } catch (err) {
-    if (err instanceof KeycloakError && err.status < 500) return renderPage(req, res, { error: err.message });
-    throw err;
-  }
+  if (!await attempt(req, res, {}, () => setTestUserPassword(row, req.body.password || ''))) return;
   renderPage(req, res, { message: `Password for ${row.username} changed.` });
+});
+
+// ---------- migrated users of the developer's applications ----------
+
+// The migration record of one of the developer's own applications; sends 404 otherwise.
+async function loadOwnMigrated(req, res) {
+  const app = await getApp(Number(req.body.appId));
+  const record = app && app.owner === req.user.username && typeof req.body.sub === 'string'
+    ? await getMigratedUser(app.id, req.body.sub) : null;
+  if (record) return { app, record };
+  sendError(req, res, 404, 'Migrated user not found.');
+  return {};
+}
+
+// A user /migrate created: deletes their Keycloak account and the record, so the application can
+// migrate them again. A user linked by hand to an account that existed before is only unlinked (see
+// /unlink): that account may be someone else's, such as a test user.
+testUsersRouter.post('/migrated/delete', async (req, res) => {
+  const { app, record } = await loadOwnMigrated(req, res);
+  if (!record) return;
+  if (record.linked_by) return renderPage(req, res, { view: 'migrated', error: `${record.username} was linked by hand to an existing account. Unlink it instead; the account itself is kept.` });
+  try {
+    await sandboxAdmin.deleteUser(record.keycloak_id);
+  } catch (err) {
+    if (!(err instanceof KeycloakError && err.status === 404)) throw err;
+  }
+  await deleteMigratedUser(app.id, record.legacy_id);
+  console.log(`[migrate] ${app.client_id}: ${req.user.username} deleted migrated user ${record.username} (legacy ${record.legacy_id}, ${record.keycloak_id})`);
+  renderPage(req, res, { view: 'migrated', message: `Migrated user ${record.username} deleted from Keycloak. ${app.name} can migrate them again; clear its own migrated flag for them first.` });
+});
+
+// Forgets the link between the application's user and a Keycloak account, which stays as it is.
+testUsersRouter.post('/migrated/unlink', async (req, res) => {
+  const { app, record } = await loadOwnMigrated(req, res);
+  if (!record) return;
+  await deleteMigratedUser(app.id, record.legacy_id);
+  console.log(`[migrate] ${app.client_id}: ${req.user.username} unlinked ${record.username} (legacy ${record.legacy_id}, ${record.keycloak_id})`);
+  renderPage(req, res, { view: 'migrated', message: `${record.username} unlinked from ${app.name}. The Keycloak account is kept.` });
 });
 
 testUsersRouter.post('/:id/delete', async (req, res) => {
   const row = await loadOwn(req, res);
   if (!row) return;
-  await sandboxAdmin.deleteUser(row.kc_id).catch((err) => {
-    if (!(err instanceof KeycloakError && err.status === 404)) throw err;
-  });
-  await deleteTestUser(row.id);
+  await removeTestUser(row);
   renderPage(req, res, { message: `Test user ${row.username} deleted.` });
 });

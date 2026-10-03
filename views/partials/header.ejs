@@ -20,6 +20,10 @@
   <%# The same content as Markdown, for LLMs and answer engines (src/content.js). %>
   <link rel="alternate" type="text/markdown" href="/llms-full.txt" title="CloakTail guide (Markdown)">
 <% } %>
+<%# Page-specific machine-readable alternates, e.g. the API's OpenAPI document (rel="service-desc", RFC 8631). %>
+<% for (const l of (typeof headLinks !== 'undefined' ? headLinks : [])) { %>
+  <link rel="<%= l.rel %>"<% if (l.type) { %> type="<%= l.type %>"<% } %> href="<%= l.href %>"<% if (l.title) { %> title="<%= l.title %>"<% } %>>
+<% } %>
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="CloakTail">
   <meta property="og:title" content="<%= title %> · CloakTail">
@@ -172,6 +176,7 @@
         <a href="/#test-login" class="btn" data-variant="ghost" data-size="sm">How testing works</a>
         <a href="/troubleshooting" class="btn" data-variant="ghost" data-size="sm" <%- currentPath.startsWith('/troubleshooting') ? 'aria-current="page"' : '' %>>Troubleshooting</a>
         <a href="/tools/decode" class="btn" data-variant="ghost" data-size="sm" <%- currentPath.startsWith('/tools/decode') ? 'aria-current="page"' : '' %>>Decoders</a>
+        <a href="/developers" class="btn" data-variant="ghost" data-size="sm" <%- currentPath.startsWith('/developers') ? 'aria-current="page"' : '' %>>Developers</a>
       </nav>
       <div class="ml-auto flex items-center gap-2">
         <%# Don't offer a link to the page you're already on. %>

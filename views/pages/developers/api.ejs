@@ -1,0 +1,105 @@
+<%
+  const TONES = { GET: 'info', POST: 'success', PUT: 'warning', PATCH: 'warning', DELETE: 'danger' };
+  const method = (m) => `<span class="method" data-tone="${TONES[m]}">${m}</span>`;
+%>
+<%- include('../../partials/header', { structuredData, headLinks, keywords }) %>
+<link rel="stylesheet" href="/static/vendor/swagger-ui/swagger-ui.css">
+<div class="mx-auto max-w-6xl py-6">
+  <nav aria-label="Breadcrumb" class="text-sm text-muted-foreground">
+    <ol class="flex flex-wrap gap-2">
+      <li><a href="/" class="hover:text-foreground hover:underline">CloakTail</a></li>
+      <li aria-hidden="true">/</li>
+      <li><a href="/developers" class="hover:text-foreground hover:underline">Developers</a></li>
+      <li aria-hidden="true">/</li>
+      <li aria-current="page">API reference</li>
+    </ol>
+  </nav>
+
+  <header class="mt-4 flex flex-wrap items-end justify-between gap-4">
+    <div class="max-w-3xl">
+      <h1 class="text-3xl font-semibold tracking-tight">CloakTail developer API reference</h1>
+      <p class="mt-3 text-muted-foreground text-pretty">
+        <%= endpointCount %> endpoints to register Keycloak OpenID Connect and SAML clients, read secrets, set up user migration,
+        run test logins and manage test users. JSON over HTTPS, OAuth 2.0 bearer tokens, RFC 9457 errors.
+      </p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a href="/developers#guide" class="btn" data-variant="outline" data-size="sm"><%- icon('file') %>Agent guide</a>
+      <a href="/api/v1/openapi.json" class="btn" data-variant="outline" data-size="sm">OpenAPI 3.1 JSON</a>
+      <a href="#try" class="btn" data-size="sm"><%- icon('play') %>Try it</a>
+    </div>
+  </header>
+
+  <%# ---------- Essentials ---------- %>
+  <section aria-labelledby="essentials" class="mt-8 grid gap-4 md:grid-cols-3">
+    <h2 id="essentials" class="sr-only">Essentials</h2>
+    <div class="rounded-xl border p-5">
+      <h3 class="font-semibold">Base URL</h3>
+      <p class="mt-2 text-sm text-muted-foreground">Paths below are relative to <code>/api/v1</code> on this site:</p>
+      <p class="mt-2 break-all font-mono text-xs"><%= apiUrl %></p>
+    </div>
+    <div class="rounded-xl border p-5">
+      <h3 class="font-semibold">Authentication</h3>
+      <p class="mt-2 text-sm text-muted-foreground">
+        Exchange an <a class="underline" href="/developers#setup">API credential</a> at <code>POST /oauth/token</code>
+        (<code>grant_type=client_credentials</code>). Send <code>Authorization: Bearer &lt;token&gt;</code>. Tokens last <%= tokenMinutes %> minutes.
+      </p>
+    </div>
+    <div class="rounded-xl border p-5">
+      <h3 class="font-semibold">Errors</h3>
+      <p class="mt-2 text-sm text-muted-foreground">
+        <code>application/problem+json</code> with a stable <code>code</code>, a <code>detail</code> that says how to fix it,
+        and <code>field</code> for validation errors. <a class="underline" href="/developers#errors">All codes</a>.
+      </p>
+    </div>
+  </section>
+
+  <%# ---------- Endpoints, server-rendered from the OpenAPI document ---------- %>
+  <div class="mt-10 grid gap-10 lg:grid-cols-[12rem_minmax(0,1fr)]">
+    <nav aria-label="Endpoint groups" class="hidden lg:block">
+      <ul class="sticky top-20 grid gap-1.5 text-sm text-muted-foreground">
+        <% for (const g of groups) { %><li><a href="#<%= g.id %>" class="hover:text-foreground"><%= g.name %></a></li><% } %>
+        <li class="mt-2"><a href="#try" class="hover:text-foreground">Try it</a></li>
+      </ul>
+    </nav>
+    <div class="grid min-w-0 gap-10">
+      <% for (const g of groups) { %>
+        <section id="<%= g.id %>" class="scroll-mt-20">
+          <h2 class="text-xl font-semibold tracking-tight"><%= g.name %></h2>
+          <% if (g.description) { %><p class="mt-1 text-sm text-muted-foreground"><%= g.description %></p><% } %>
+          <div class="mt-4 divide-y rounded-xl border">
+            <% for (const e of g.endpoints) { %>
+              <article id="<%= e.operationId %>" class="scroll-mt-20 p-4">
+                <h3 class="flex flex-wrap items-center gap-2 font-mono text-sm">
+                  <%- method(e.method) %><span class="break-all font-medium"><%= e.path %></span>
+                </h3>
+                <p class="mt-2 text-sm"><%= e.summary %></p>
+                <% if (e.description) { %><p class="mt-1 text-sm text-muted-foreground"><%= e.description %></p><% } %>
+                <dl class="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
+                  <div class="flex gap-1"><dt>Scope</dt><dd><code><%= e.scope || 'none' %></code></dd></div>
+                  <div class="flex gap-1"><dt>Success</dt><dd><code><%= e.ok %></code></dd></div>
+                  <% if (e.body) { %><div class="flex gap-1"><dt>Body</dt><dd><code><%= e.body %></code></dd></div><% } %>
+                  <div class="flex gap-1"><dt>Operation</dt><dd><code><%= e.operationId %></code></dd></div>
+                </dl>
+              </article>
+            <% } %>
+          </div>
+        </section>
+      <% } %>
+
+      <section id="try" class="scroll-mt-20">
+        <h2 class="text-xl font-semibold tracking-tight">Try it</h2>
+        <p class="mt-1 text-sm text-muted-foreground">
+          Press <strong>Authorize</strong> and enter an API credential’s client ID and secret. Calls act on your real sandbox applications.
+        </p>
+        <%# Swagger UI has no dark theme: keep it on a light surface. %>
+        <div class="mt-4 overflow-hidden rounded-xl border bg-white text-zinc-900">
+          <div id="swagger-ui"><p class="p-6 text-sm">Loading the interactive console… It needs JavaScript; the reference above doesn’t.</p></div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+<script src="/static/vendor/swagger-ui/swagger-ui-bundle.js"></script>
+<script src="/api/v1/docs.js"></script>
+<%- include('../../partials/footer') %>

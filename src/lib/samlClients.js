@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { config } from '../config.js';
 import { sandboxAdmin, KeycloakError } from './keycloakAdmin.js';
-import { listApps, deleteApp, listTestUsers, deleteTestUser } from '../db.js';
+import { listApps, deleteApp, listTestUsers, deleteTestUser, deleteOwnerApiCredentials } from '../db.js';
 
 // Translates between the portal's "application" form and a Keycloak SAML client representation.
 
@@ -268,8 +268,10 @@ export async function deleteSandboxClient(kcId) {
   await sandboxAdmin.deleteClient(kcId).catch(ignoreNotFound);
 }
 
-// Removes a developer's sandbox clients (SAML and OIDC) and test users (used when their account is deleted).
+// Removes a developer's sandbox clients (SAML and OIDC), test users and API credentials (used when
+// their account is deleted).
 export async function deleteOwnerResources(owner) {
+  await deleteOwnerApiCredentials(owner);
   for (const app of await listApps({ owner })) {
     await deleteSandboxClient(app.kc_id);
     await deleteApp(app.id);

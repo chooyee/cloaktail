@@ -1,5 +1,9 @@
 // Public product copy, shared by the landing page, /llms.txt, /llms-full.txt and the JSON-LD, so
 // search engines, answer engines and people all read the same facts.
+import { devSummary, devTitle, devDescription, capabilities } from './developersContent.js';
+
+// The calls an agent makes for "add OpenID Connect login", for the landing page's agent preview.
+export { agentRun } from './developersContent.js';
 
 export const tagline = 'Keycloak SSO, tested before you ship.';
 
@@ -12,7 +16,17 @@ export const keywords = [
   'Keycloak', 'SAML 2.0', 'OpenID Connect', 'OIDC', 'OAuth 2.0', 'PKCE', 'SSO', 'single sign-on',
   'SAML testing', 'OIDC testing', 'SAML debugger', 'SAML decoder', 'JWT decoder', 'ID token', 'JWKS',
   'SP metadata', 'Keycloak client', 'identity provider sandbox',
+  'Keycloak API', 'AI coding agent', 'Claude Code', 'Cursor', 'OpenAPI',
 ];
+
+// The developer API for AI coding agents, as the landing page pitches it. The full story is on
+// /developers (developersContent.js).
+export const agentPitch = {
+  lead: 'Or let your AI coding agent do it.',
+  text: 'Claude Code, Cursor or Copilot can register the client, write its secrets to your .env and start the test login, through the developer API.',
+  href: '/developers',
+  link: 'See how',
+};
 
 // `ctx` holds the runtime values the copy mentions: { sandboxRealm, maxApps, maxTestUsers }.
 export const quickstart = ({ sandboxRealm }) => [
@@ -29,6 +43,7 @@ export const features = ({ sandboxRealm }) => [
   { tag: 'Identities', title: 'Test users', text: 'Create sandbox users with the profile your app expects, and see exactly which attributes or claims it will receive.' },
   { tag: 'Reference', title: 'Copy-ready configuration', text: 'SAML metadata and endpoints, or the OIDC issuer, discovery URL and client secret, with a sample config, one click each.' },
   { tag: 'Tools', title: 'SAML and JWT decoders', text: 'Decode a SAMLRequest or SAMLResponse, or an ID or access token, and verify a JWT signature against a JWKS. Everything runs in your browser.' },
+  { tag: 'API', title: 'Built for AI coding agents', text: 'Everything the portal does is also a REST API that Claude Code, Cursor or any coding agent can drive: an OpenAPI 3.1 document, a step-by-step agent guide with done-when checks, stable error codes and safe retries. Secrets go straight into your .env, never into the chat.', href: '/developers', link: 'Explore the developer API' },
 ];
 
 export const testSteps = ({ sandboxRealm }) => [
@@ -44,7 +59,7 @@ export const testLimits = 'SAML clients that require signed requests are tested 
 
 // When the public copy was last reviewed. Shown on the pages and in the JSON-LD; bump it when the
 // copy changes, since answer engines favour content that is visibly current.
-export const updated = '2026-10-02';
+export const updated = '2026-10-03';
 export const updatedLabel = new Date(`${updated}T00:00:00Z`)
   .toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
 
@@ -290,7 +305,7 @@ export const alternatives = [
   {
     name: 'CloakTail',
     examples: 'your organization’s Keycloak, self-service',
-    bestFor: 'Developers integrating an app with their organization’s Keycloak, who want to change the client themselves and see every check of a real login.',
+    bestFor: 'Developers integrating an app with their organization’s Keycloak, who want to change the client themselves, or have their AI coding agent do it through the API, and see every check of a real login.',
     tradeoff: 'OIDC clients get the realm’s default scopes and claims, without custom mappers. SAML clients that require signed requests are tested from your own app, encrypted assertions can be checked but not read, and the sandbox is for testing, not production.',
   },
 ];
@@ -325,6 +340,8 @@ export function structuredData(ctx, url) {
       description: summary,
       featureList: features(ctx).map((f) => `${f.title}: ${f.text}`),
       keywords: keywords.join(', '),
+      // The developer API page, so search engines tie "AI coding agent" queries to the product.
+      subjectOf: { '@type': 'TechArticle', name: devTitle, description: devDescription, url: `${origin(url)}/developers` },
     },
     {
       '@context': 'https://schema.org',
@@ -420,6 +437,19 @@ export function llmsText({ baseUrl, sandbox, registrationEnabled, full, ...ctx }
       '',
     );
   }
+  // The developer API, for agents that land on llms.txt: what it does and exactly where to start.
+  lines.push(
+    '## Developer API for AI coding agents',
+    '',
+    devSummary,
+    '',
+    `- Start here: [agent guide](${link('/api/v1/agent.md')}) (Markdown): quick facts, numbered rules, every endpoint, recipes with done-when criteria, error codes`,
+    `- [OpenAPI 3.1](${link('/api/v1/openapi.json')}): exact request and response schemas`,
+    `- [API catalog](${link('/.well-known/api-catalog')}) (RFC 9727) and [reference for people](${link('/developers/api')})`,
+    `- Authentication: OAuth 2.0 client credentials at \`POST ${link('/api/v1/oauth/token')}\` with an API credential the developer creates at ${link('/api-credentials')} and passes as the CLOAKTAIL_CLIENT_ID and CLOAKTAIL_CLIENT_SECRET environment variables`,
+    ...capabilities.map((c) => `- ${c.title}: ${c.endpoints.map(([m, p]) => `\`${m} /api/v1${p}\``).join(', ')} (scope \`${c.scope}\`)`),
+    '',
+  );
   const tools = [
     `- [SAML decoder](${link('/tools/decode')}): decode a SAMLRequest or SAMLResponse (HTTP-POST or Redirect binding) into readable XML, in the browser`,
     `- [JWT decoder](${link('/tools/decode/jwt')}): decode an ID token or access token and verify its signature against a JWKS, PEM public key or secret, in the browser`,
@@ -435,6 +465,9 @@ export function llmsText({ baseUrl, sandbox, registrationEnabled, full, ...ctx }
       '## Docs',
       '',
       `- [Full product guide](${link('/llms-full.txt')}): features, quickstart, how test logins work, comparison with other ways to test, registration and every troubleshooting guide, in one Markdown file`,
+      `- [User migration protocol](${link('/migrate/spec.md')}): how an application moves its users into Keycloak through CloakTail, with schemas, error codes and testing endpoints, for coding agents that implement it`,
+      `- [Developer REST API guide for coding agents](${link('/api/v1/agent.md')}): register OIDC and SAML applications, read their secrets, set up user migration and test users with an API credential; with the [OpenAPI document](${link('/api/v1/openapi.json')})`,
+      `- [Developer API page](${link('/developers')}) and [API reference](${link('/developers/api')}): the same, for people`,
       `- [Product page](${link('/')}): the same content as HTML`,
       `- [Disclaimer](${link('/disclaimer')}): terms for using the sandbox`,
       '',
@@ -470,6 +503,6 @@ export function llmsText({ baseUrl, sandbox, registrationEnabled, full, ...ctx }
   lines.push('', '## Troubleshooting', '', ...troubleshooting((p) => problemMarkdown(p, 4, baseUrl)));
   lines.push('## Links', '');
   if (registrationEnabled) lines.push(`- [Create a developer account](${link('/register')})`);
-  lines.push(`- [Sign in](${link('/login')})`, `- [Disclaimer](${link('/disclaimer')})`, '');
+  lines.push(`- [Sign in](${link('/login')})`, `- [User migration protocol](${link('/migrate/spec.md')})`, `- [Disclaimer](${link('/disclaimer')})`, '');
   return lines.join('\n');
 }

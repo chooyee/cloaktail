@@ -28,9 +28,10 @@ A self-service portal where developers register, create SAML clients in Keycloak
   - **OIDC:** it runs the authorization code flow with PKCE as their client, with the portal's own redirect URI (`/oidc/test/callback`), redeems the code (with the client secret for confidential clients) and calls userinfo. It shows pass/fail checks for the code exchange, the ID token signature (against the realm JWKS), issuer, audience, `azp`, expiry, nonce and `at_hash`, plus the decoded ID token, access token and userinfo claims. Only the decoded claims are stored, never the tokens.
 
   The portal adds its own test ACS / redirect URI, on every domain of the profile, to each client, and hides it from the form. The last 10 runs are kept per application.
-- **Test users:** each developer manages a few accounts in the sandbox realm to sign in with during tests.
+- **Test users:** each developer manages a few accounts in the sandbox realm to sign in with during tests. The same page lists **Migrated users**: everyone their applications moved into the sandbox realm through user migration (username, the application's user id, application, when, and whether a person linked the account by hand), newest first, with a filter. **Delete** removes a migrated user from Keycloak and from CloakTail's record, so the application can migrate them again (it must clear its own migrated flag for them too). A user someone linked by hand to an existing account can only be **unlinked**: the record goes, the account stays, since it may be someone else's.
 - **Portal administration:** user management (in `ep`) and portal roles and permissions, as before.
-- **User migration** for registered applications: an application sends its existing users to `/migrate` once to choose a new password and move into Keycloak (see [User migration](#user-migration)).
+- **User migration** for registered applications: an application sends its existing users to `/migrate` once, right after they sign in the old way. On one page they choose a new password and add an authenticator app, then go straight back to the application, signed in. From their next sign-in they use Keycloak (see [User migration](#user-migration)).
+- **Developer REST API** at `/api/v1`: everything above that a developer does (applications, secrets, user migration, test logins, test users, certificates) for scripts and AI coding agents, with API credentials from **API credentials** (`/api-credentials`). See [Developer REST API](#developer-rest-api).
 - **Admin console** at `/admin`: configures the Keycloak connection at runtime. Administrators are local accounts stored in the portal database, not Keycloak users, so the console still works when the Keycloak settings are wrong.
 
 Why a separate sandbox realm: a developer controls their client's ACS URL, so a client in `ep` could receive the identity of real `ep` users. The sandbox realm has only test users, and the portal's service account there can't touch production clients.
@@ -60,6 +61,13 @@ Lets a developer move the users of their **registered application** into Keycloa
 
 Migrated users are created in the profile's sandbox realm, where the application's client lives, by the sandbox service account. No email is sent, and emails are not marked verified.
 
+**What a user sees:**
+
+1. They sign in to the application with their old password, as today.
+2. The application sends them to CloakTail. On one page they see their profile, choose a new password and, with **Require OTP**, scan a QR code with an authenticator app and enter a code from it. CloakTail creates their Keycloak account with both the password and the authenticator.
+3. They go straight back to the application, already signed in: they proved who they are moments ago, so there is no second sign-in.
+4. From their next sign-in, the application sends them to Keycloak: the new password, then a code from the app. Keycloak has nothing left to set up.
+
 ### Developer guide: redirecting a user
 
 **0. Set it up.** On the application's User migration page:
@@ -68,10 +76,10 @@ Migrated users are created in the profile's sandbox realm, where the application
   - **Migration secret (HS256):** the default.
   - **Public key (PEM):** RS256, PS256, ES256 or EdDSA.
   - **JWKS URL:** with `kid`.
-- Leave **Require OTP** on so new users set up an authenticator at their first Keycloak sign-in.
+- Leave **Require OTP** on so new users add an authenticator app while they choose their new password.
 - Copy the **migration secret** into your app's server configuration (e.g. `CLOAKTAIL_MIGRATION_SECRET`). It always signs the results; with the default method it also signs your requests.
 
-**1. Check the old password as you do today.** When it's right and the user isn't migrated yet (keep a flag such as `migrated_at`), don't start a session. Send them to CloakTail instead. Users you've already migrated go straight to Keycloak (step 4).
+**1. Check the old password as you do today.** When it's right and the user isn't migrated yet (keep a flag such as `migrated_at`), don't start a session. Keep a short pre-login session with the user's id and `state` (lasting at least 30 minutes, the time CloakTail gives the user), and send them to CloakTail. Users you've already migrated go straight to Keycloak (step 4).
 
 **2. Redirect to CloakTail with a signed request**: `https://<portal domain>/migrate/start?request=<JWT>`. Or auto-submit a form `POST` with a `request` field, which keeps the token out of logs and history.
 
@@ -87,28 +95,80 @@ Migrated users are created in the profile's sandbox realm, where the application
 | `return_url` | One of your return URLs |
 | `state` | A random value kept in the user's session; it comes back in the result |
 
-The user sees their profile and chooses a new password; they can also cancel. A request that fails any check never redirects. The user sees "This link can't be used", and the reason appears in the application's request history.
+The user sees their profile, chooses a new password and, with **Require OTP**, adds an authenticator app; they can also cancel. A request that fails any check never redirects. The user sees "This link can't be used", and the reason appears in the application's request history.
 
 **3. Handle the result** at `return_url?result=<JWT>`. Check its HS256 signature with the migration secret, that `aud` is your client ID, that `exp` hasn't passed (results are valid for 5 minutes), and that `state` matches the session. Then act on `status`:
 
 | `status` | Meaning | Your app |
 |---|---|---|
-| `created` | The Keycloak account exists with the new password | Mark the user migrated, then step 4 |
-| `already_migrated` | You migrated this user before; no password was asked | Same |
+| `created` | The Keycloak account exists with the new password | Mark the user migrated and let them in at once: they already signed in with their old password |
+| `already_migrated` | You migrated this user before; no password was asked | Mark the user migrated, then step 4 |
 | `conflict` | A different Keycloak account has this username or email | Tell the user; someone must sort it out |
 | `cancelled`, `expired`, `error` | No account was created | Let them in the old way this time; ask again next time |
 
 The result also carries `sub`, `preferred_username`, `keycloak_id` and `request_jti`.
 
-**4. Sign the user in with Keycloak** through the application's usual OIDC or SAML sign-in. With OIDC, pass `login_hint=<preferred_username>`; with SAML, put the username in the AuthnRequest's Subject NameID. With **Require OTP**, Keycloak shows the authenticator setup (the `CONFIGURE_TOTP` required action) on its own pages, so neither the app nor CloakTail handles OTP secrets.
+After `created`, turn the pre-login session into the user's session, as a successful old-password sign-in would. An application that needs Keycloak tokens straight away may start a Keycloak sign-in instead.
+
+**4. Sign migrated users in with Keycloak** from their next sign-in (and after `already_migrated`), through the application's usual OIDC or SAML sign-in. With OIDC, pass `login_hint=<preferred_username>`; with SAML, put the username in the AuthnRequest's Subject NameID. The old password no longer lets them in. With **Require OTP**, users add their authenticator app on CloakTail's migration page, and Keycloak asks for a code from it.
+
+### For coding agents
+
+`GET /migrate/spec.md` is the whole protocol written for a coding agent that implements it in an application: rules (MUST/SHOULD), JSON schemas of the request and result, stable error codes with fixes, and acceptance tests. It is the same for every application and is linked from `/llms.txt`. The migration page has a ready-made prompt pointing to it.
+
+Three endpoints let the agent test its work without a browser. All take `{"request": "<JWT>"}` and only answer requests signed by a registered application with user migration set up (also while it is turned off). They create no users and don't use up the `jti`:
+
+- `POST /migrate/check` validates the request as `/migrate/start` would, returning `{ ok, error: { code, message }, app }`. `app` is the application's own settings (return URLs, signing method, OTP), shown once the signature checks out. Unknown client IDs and bad signatures both get `invalid_request`, so client IDs can't be probed.
+- `POST /migrate/simulate` with a `status` returns a result for that status, signed with the migration secret and marked `simulated: true`, to test the return URL handler.
+- `POST /migrate/status` says whether CloakTail already migrated the request's user, with a signed `already_migrated` result when it did, so an application can recover a result the browser never brought back.
+
+Rejected requests in the history now start with the same error code (`aud_mismatch: …`).
 
 ### Sandbox realm setup (administrators)
 
 - **Realm settings → General → Unmanaged attributes:** set *Admin can edit* or *Enabled*, or declare `legacy_id`, `migrated_from` and `migrated_at` in **Realm settings → User profile**. Otherwise Keycloak drops them, and a returning user gets `conflict` instead of `already_migrated`. The profile's sandbox **Check connection** tests this, and developers see a warning on their migration page.
-- **Authentication → Required actions:** keep *Configure OTP* enabled (the default).
+- **OTP:** with **Require OTP**, users add their authenticator app on `/migrate` and are created with the OTP credential (HmacSHA1, 6 digits, 30 seconds, stored on the credential, so the realm's OTP policy doesn't change it). The page checks the code with `POST /migrate/otp` before submitting, so a mistyped code doesn't clear the password fields; the server checks it again on submit. The secret stays in the user's CloakTail session (PostgreSQL) until the account is created. CloakTail removes *Configure OTP* from the new user when the realm adds it as a default action, so Keycloak doesn't ask for a second authenticator. The realm's browser flow must ask for OTP when a user has one (the default *Conditional OTP*).
+- **Realm settings → Login → Email as username:** keep it **Off**. When it's on, Keycloak replaces `preferred_username` with the email, so users must sign in with their email and the application's `login_hint` doesn't match.
+- **Realm settings → User profile:** if first and last name are required, users whose application sent no `given_name` or `family_name` are asked for them at their first Keycloak sign-in.
 - The realm's password policy applies; its messages are shown on the password field.
 
 Deleting an application deletes its migration setup and history; migrated users stay in Keycloak.
+
+**Migration record.** CloakTail keeps its own record of which Keycloak user each application user (`sub`) became (`app_migrated_users`, filled in from the request history on upgrade). It decides `already_migrated`, so a returning user is recognised even when the realm drops the migration attributes or the username changed; the attributes are only a copy. An application that lost a result (the browser never came back) asks `POST /migrate/status` with a signed request and gets a signed `already_migrated` result. A `conflict` is resolved by linking the existing Keycloak account to the `sub` (`PUT /api/v1/apps/{id}/migration/users/{sub}`). Migration warnings are objects with a `code`, `who_can_fix`, `impact` and `ignorable_if`; a JWKS URL is fetched and checked when settings are saved.
+
+## Developer REST API
+
+Everything a developer does on the application, test user and certificate pages, as JSON over HTTP at `/api/v1`. The admin console and portal user/role management aren't part of it.
+
+**Credentials.** On **API credentials** (`/api-credentials`, for users with `apps.own`), a developer creates a credential: a client ID (`ctc_…`) and a secret (`cts_…`, shown once, stored as a SHA-256 hash), with scopes and an expiry. At most 10 per developer. A credential acts as its developer on the domains of the Keycloak profile it was made on. Every call checks the developer's *current* permissions, so taking away their role, or revoking the credential, stops it at once. Deleting the developer deletes their credentials.
+
+| Scope | Allows |
+|---|---|
+| `apps:read` | List and read applications, test runs, user migration settings and history |
+| `apps:write` | Register, change and delete applications; set up user migration; start tests; rotate secrets |
+| `secrets:read` | Read OIDC client secrets and migration secrets |
+| `test_users` | Manage sandbox test users |
+| `tools` | Generate SAML certificates |
+
+**Tokens.** `POST /api/v1/oauth/token` with `grant_type=client_credentials` (HTTP Basic or `client_id`/`client_secret` in the body) returns a bearer token valid for 15 minutes, signed with a key derived from `SETTINGS_KEY`. The API takes no cookies, so it needs no CSRF token.
+
+**Documents.**
+
+- `GET /api/v1/openapi.json`: OpenAPI 3.1, with request schemas built from the same field definitions the API reads bodies with (`src/api/fields.js`).
+- `/developers` (public page): what the API is for, how to hand a credential to a coding agent, and the agent guide rendered as HTML. `/developers/api` (public page): the API reference, Swagger UI served from `swagger-ui-dist`; **Authorize** takes a client ID and secret. Both are in the public navigation, the sidebar and the sitemap; `/api/v1/docs` redirects to the reference.
+- `GET /api/v1/agent.md`: the guide for coding agents. It gives the order of calls to add OIDC login, SAML SSO and user migration to an application, how to choose values, how to handle secrets (env vars only, write straight to a git-ignored `.env`, never print or commit), how to hand a test login to a person, and every error code. It is linked from `/llms.txt`.
+
+Neither document names a host. The guide writes every URL as `$CLOAKTAIL_URL/…` and tells the agent to take the base URL from where it fetched the guide (or from `CLOAKTAIL_URL` in its environment); the OpenAPI `servers` and `tokenUrl` are relative. So the same documents are right on every domain. URLs in API responses are absolute, built from the request's own domain.
+
+A developer gives an agent the credential through environment variables (`CLOAKTAIL_URL`, `CLOAKTAIL_CLIENT_ID`, `CLOAKTAIL_CLIENT_SECRET`) and a prompt such as *"Use CloakTail to add OpenID Connect login to this app. First read https://…/api/v1/agent.md."* The credentials page has both, ready to copy.
+
+**Secrets as files.** `GET /api/v1/apps/{id}/env` returns every variable an application needs (`OIDC_*` or `SAML_*`, plus `CLOAKTAIL_URL` and `CLOAKTAIL_MIGRATION_SECRET` with migration) as `.env` lines, and the secret endpoints take `?format=dotenv`, so agents write secrets to files without seeing them. The agent guide's shell helpers (`ct_token`, `env_merge`) need only curl and node or python3, pass the credential to curl on stdin, and merge `.env` idempotently.
+
+**Discovery.** API responses carry RFC 8631 `Link` headers (`service-desc`, `service-doc`), `/.well-known/api-catalog` is an RFC 9727 catalog, and the public pages `/developers` and `/developers/api` (endpoint reference rendered on the server, JSON-LD, in the sitemap) link the documents with `<link rel>`.
+
+**Errors** are RFC 9457 problem details (`application/problem+json`) with a stable `code`, a `detail` that says how to fix it, and `field` for validation errors. A repeated create answers `409 duplicate_client_id` with `existing_app_id` when the app is the caller's, so agents can retry safely. Limits: 60 token requests per IP and 1000 calls per credential per 15 minutes (in memory, per instance).
+
+The HTML pages and the API share one service layer (`src/services/`) for validation, quotas and Keycloak calls.
 
 ## Admin console
 
@@ -292,6 +352,7 @@ Sign-up is limited to 5 attempts per IP address per 15 minutes and has a hidden 
 
 ## Notes
 
-- **In-memory state:** sessions, pending tests and the sign-up limiter live in memory, so restarting clears them. They are also not shared across instances. For production, use a shared store.
+- **Sessions** live in PostgreSQL, so they survive restarts and are shared by every instance. A migrating user's session holds their new authenticator secret until the account is created.
+- **In-memory state:** pending tests and the rate limiters (sign-up, `/migrate`) live in memory, so restarting clears them and they are not shared across instances. For production, use a shared store.
 - **HTTPS and proxies:** cookies are `Secure` on requests that arrived over HTTPS. Behind a reverse proxy, set `TRUST_PROXY` and forward `X-Forwarded-Proto` and `X-Forwarded-Host`; otherwise the app sees the internal address, finds no profile for it and answers 421.
 - **Several instances:** domain and profile changes apply at once on the instance where they were made; restart the others.

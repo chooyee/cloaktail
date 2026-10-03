@@ -355,7 +355,7 @@ export function migrationSamples({ clientId, migrateUrl, returnUrl, requestKey, 
   const hs = requestKey === 'secret';
   const returnPath = pathOf(returnUrl, '/migrated');
   const kid = requestKey === 'jwks' ? ", kid: 'my-key-1'" : '';
-  const otpNote = requireOtp ? ' Keycloak then asks them to set up an authenticator app.' : '';
+  const otpNote = requireOtp ? ' Keycloak asks for a code from the authenticator app they added on CloakTail.' : '';
 
   const node = `import crypto from 'node:crypto';
 
@@ -421,9 +421,13 @@ app.get('${returnPath}', async (req, res) => {
 
   switch (result.status) {
     case 'created':
+      // They signed in with their old password moments ago: let them in now, no second sign-in.
+      await markMigrated(result.sub, result.keycloak_id);
+      req.session.userId = pending.userId;
+      return res.redirect('/');
     case 'already_migrated':
       await markMigrated(result.sub, result.keycloak_id);
-      // Step 3: sign in with Keycloak from now on.${otpNote}
+      // Step 3: migrated users sign in with Keycloak, never with the old password.${otpNote}
       return res.redirect(\`/auth/keycloak?login_hint=\${encodeURIComponent(result.preferred_username)}\`);
     case 'conflict':
       // Another Keycloak account has this username or email: needs a person to sort out.
@@ -512,9 +516,14 @@ def migrated():
     if result is None or pending is None or result.get('state') != pending['state']:
         abort(400)
 
-    if result['status'] in ('created', 'already_migrated'):
+    if result['status'] == 'created':
+        # They signed in with their old password moments ago: let them in now, no second sign-in.
         mark_migrated(result['sub'], result.get('keycloak_id'))
-        # Step 3: sign in with Keycloak from now on.${otpNote}
+        session['user_id'] = pending['user_id']
+        return redirect('/')
+    if result['status'] == 'already_migrated':
+        mark_migrated(result['sub'], result.get('keycloak_id'))
+        # Step 3: migrated users sign in with Keycloak, never with the old password.${otpNote}
         return redirect('/auth/keycloak?' + urlencode({'login_hint': result['preferred_username']}))
     if result['status'] == 'conflict':
         # Another Keycloak account has this username or email: needs a person to sort out.

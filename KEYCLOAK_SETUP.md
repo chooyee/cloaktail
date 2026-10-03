@@ -76,7 +76,9 @@ Everything to configure in a fresh (or reset) Keycloak for CloakTail. Values ass
 ## 2. Sandbox realm `ep-dev`
 
 - [ ] **Create realm** `ep-dev`
-- [ ] **Realm settings → Login**: User registration **Off**
+- [ ] **Realm settings → Login**: User registration **Off**, Email as username **Off** (user migration signs users in with the username the application sends)
+- [ ] **Realm settings → General → Unmanaged attributes**: *Admin can edit* or *Enabled*, so migrated users keep `legacy_id`, `migrated_from` and `migrated_at`
+- [ ] **Authentication → Flows → browser**: keep *Conditional OTP*, so users who added an authenticator app on CloakTail's migration page are asked for a code
 
 ### 2a. Service account client `devportal-admin`
 
@@ -116,6 +118,7 @@ CloakTail's database still holds records from the old Keycloak:
 
 - **Applications**: their SAML clients no longer exist in `ep-dev`. Delete and recreate them, or re-register them.
 - **Test users**: no longer exist in `ep-dev`. Recreate them from the Test users page.
+- **Migrated users**: no longer exist in `ep-dev`. CloakTail drops its record of a migrated user whose Keycloak account is gone, so the application's next request for them migrates them again. The application's own `migrated_at` flags still say they moved: clear them, or those users can't sign in.
 - **Portal users**: accounts in `ep` are gone. Users must sign up again; if they use the same username, the local record and roles are picked up again on sign-in.
 
 ## 5. Smoke test

@@ -13,10 +13,12 @@
     <% if (canEdit) { %>
       <a href="/apps/<%= app.id %>/edit" class="btn" data-variant="outline"><%- icon('sliders') %>Edit settings</a>
     <% } %>
-    <form method="post" action="/apps/<%= app.id %>/test">
-      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-      <button type="submit" class="btn" <%= values.clientSignature ? 'disabled' : '' %>><%- icon('play') %>Run test login</button>
-    </form>
+    <% if (!values.clientSignature) { %>
+      <form method="post" action="/apps/<%= app.id %>/test">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <button type="submit" class="btn"><%- icon('play') %>Run test login</button>
+      </form>
+    <% } %>
   </div>
 </header>
 
@@ -24,7 +26,7 @@
   <div class="alert mt-6" data-tone="success" role="status">
     <%- icon('check') %>
     <h2>Application registered</h2>
-    <section>Keycloak created client <code><%= app.client_id %></code> in realm <code><%= idp.realm %></code>. Run a test login to check it.</section>
+    <section>Keycloak created client <code><%= app.client_id %></code> in realm <code><%= idp.realm %></code>.<% if (!values.clientSignature) { %> Run a test login to check it.<% } %></section>
   </div>
 <% } %>
 
@@ -32,20 +34,25 @@
 <section id="test" class="page-section">
   <div class="section-intro">
     <h2>Test connection</h2>
-    <p>The portal sends a login request as this client. Sign in with one of your test users, then see exactly what Keycloak returned.</p>
+    <p><% if (values.clientSignature) { %>Only your app can sign this client’s login requests, so test through your app.<% } else { %>The portal sends a login request as this client. Sign in with one of your test users, then see exactly what Keycloak returned.<% } %></p>
   </div>
   <div class="section-body">
     <% if (values.clientSignature) { %>
-      <div class="alert" data-tone="warning" role="status"><%- icon('alert') %><section>
-        This client requires signed requests, which only your app can produce, so the portal can’t start a test login.
+      <div class="alert" data-tone="info" role="status"><%- icon('info') %><section>
+        This client requires signed requests, which only your app can produce, so the portal has no test login for it.
         <% if (idpInitiatedUrl) { %>Use the IdP-initiated link below to test through your own app.<% } %>
+        <% if (canEdit) { %>To use the portal’s test login, <a class="underline underline-offset-4" href="/apps/<%= app.id %>/edit">turn off “Require signed requests”</a> while you develop.<% } %>
       </section></div>
-    <% } else if (testUserCount === 0 && app.owner === user.username) { %>
-      <div class="alert" data-tone="warning" role="status"><%- icon('info') %><section>
-        You have no test users yet. <a class="underline underline-offset-4" href="/test-users">Create one</a> to sign in with during the test.
-      </section></div>
+      <%# Runs from before signed requests were required. %>
+      <% if (runs.length) { %><%- include('../../fragments/test-runs') %><% } %>
+    <% } else { %>
+      <% if (testUserCount === 0 && app.owner === user.username) { %>
+        <div class="alert" data-tone="warning" role="status"><%- icon('info') %><section>
+          You have no test users yet. <a class="underline underline-offset-4" href="/test-users">Create one</a> to sign in with during the test.
+        </section></div>
+      <% } %>
+      <%- include('../../fragments/test-runs') %>
     <% } %>
-    <%- include('../../fragments/test-runs') %>
   </div>
 </section>
 

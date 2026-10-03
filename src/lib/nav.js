@@ -4,6 +4,7 @@ const PORTAL = [
     { href: '/', label: 'Dashboard', icon: 'dashboard', perms: ['dashboard.view'] },
     { href: '/apps', label: 'Applications', icon: 'apps', perms: ['apps.own', 'apps.view_all'] },
     { href: '/test-users', label: 'Test users', icon: 'testUser', perms: ['apps.own'] },
+    { href: '/api-credentials', label: 'API credentials', icon: 'key', perms: ['apps.own'] },
   ] },
   { label: 'Tools', links: [
     { href: '/tools/certificate', label: 'Certificates', icon: 'certificate', perms: ['apps.own'] },
@@ -16,6 +17,7 @@ const PORTAL = [
   { label: 'Help', links: [
     { href: '/guide', label: 'Guide', icon: 'book', perms: [] },
     { href: '/troubleshooting', label: 'Troubleshooting', icon: 'lifebuoy', perms: [] },
+    { href: '/developers', label: 'Developer API', icon: 'terminal', perms: [] },
   ] },
 ];
 

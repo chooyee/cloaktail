@@ -29,15 +29,18 @@
 <% if (message) { %>
   <div class="alert mt-6" data-tone="success" role="status"><%- icon('check') %><section><%= message %></section></div>
 <% } %>
-<% if (attributesProblem) { %>
-  <div class="alert mt-6" data-tone="warning" role="status"><%- icon('alert') %><h2>The sandbox realm needs a setting</h2><section><%= attributesProblem %></section></div>
+<% for (const w of warnings) { %>
+  <div class="alert mt-6" data-tone="<%= w.impact.startsWith('High') ? 'warning' : 'info' %>" role="status"><%- icon('alert') %>
+    <h2><%= w.who_can_fix === 'admin' ? 'For an administrator' : 'Check your setup' %></h2>
+    <section><p><%= w.message %></p><p class="mt-1 text-xs"><%= w.impact %> Safe to ignore when: <%= w.ignorable_if %></p></section>
+  </div>
 <% } %>
 
 <%# ---------- Setup ---------- %>
 <section id="setup" class="page-section">
   <div class="section-intro">
     <h2>Setup</h2>
-    <p>Where users are sent back, how your requests are signed, and whether new users must set up OTP.</p>
+    <p>Where users are sent back, how your requests are signed, and whether users add an authenticator app.</p>
   </div>
   <div class="section-body">
     <% if (canEdit) { %>
@@ -90,8 +93,8 @@
           <div class="field" data-orientation="horizontal">
             <input type="checkbox" id="requireOtp" name="requireOtp" <%= values.requireOtp ? 'checked' : '' %>>
             <section>
-              <label for="requireOtp" class="text-sm font-normal">Require OTP: users set up an authenticator app at their first Keycloak sign-in</label>
-              <p class="text-xs text-muted-foreground">Keycloak shows the QR code on its own pages, so neither your app nor CloakTail handles OTP secrets.</p>
+              <label for="requireOtp" class="text-sm font-normal">Require OTP: users add an authenticator app while they choose their new password</label>
+              <p class="text-xs text-muted-foreground">CloakTail shows the QR code on the migration page and creates the Keycloak account with it, so Keycloak asks for no more setup. Your app never sees the OTP secret.</p>
             </section>
           </div>
         </section>
@@ -105,7 +108,7 @@
           <dt>Status</dt><dd><%= migration.enabled ? 'On' : 'Off' %></dd>
           <dt>Return URLs</dt><dd class="font-mono text-xs"><%= migration.settings.returnUrls.join(', ') %></dd>
           <dt>Requests signed with</dt><dd><%= REQUEST_KEYS[migration.settings.requestKey] %></dd>
-          <dt>OTP</dt><dd><%= migration.settings.requireOtp ? 'Required' : 'Optional' %></dd>
+          <dt>OTP</dt><dd><%= migration.settings.requireOtp ? 'Required: users add an authenticator app on CloakTail' : 'Not required' %></dd>
         </dl>
       </section></div>
     <% } else { %>
@@ -157,6 +160,32 @@
     <p>What your application does, step by step. The code below has this application’s values filled in.</p>
   </div>
   <div class="section-body gap-8">
+    <% const specUrl = `${migrateUrl}/spec.md`; %>
+    <div class="card py-5">
+      <section class="grid gap-3 px-5 text-sm">
+        <p class="font-medium">What your users see</p>
+        <ol class="grid list-decimal gap-1 pl-5 text-muted-foreground">
+          <li>They sign in to your app with their old password, as today.</li>
+          <li>Your app sends them to CloakTail. On one page they choose a new password<%= (migration?.settings.requireOtp ?? true) ? ' and scan a QR code with an authenticator app' : '' %>.</li>
+          <li>They come straight back to your app, already signed in. No second sign-in.</li>
+          <li>From their next sign-in, your app sends them to Keycloak: their new password<%= (migration?.settings.requireOtp ?? true) ? ' and a code from the app' : '' %>.</li>
+        </ol>
+      </section>
+    </div>
+    <div class="card py-5">
+      <section class="grid gap-3 px-5 text-sm">
+        <p class="font-medium">Using a coding agent?</p>
+        <p class="text-muted-foreground">
+          Point it at the <a href="<%= specUrl %>" class="underline underline-offset-4">protocol spec</a>. It has the rules, JSON schemas, error codes and
+          two testing endpoints the agent can call itself: <code>/migrate/check</code> validates the requests your app builds and returns this application’s settings,
+          and <code>/migrate/simulate</code> returns a signed result for each status. Set <code>CLOAKTAIL_MIGRATION_SECRET</code> first; the agent doesn’t need to see the secret.
+        </p>
+        <dl><%- include('../../fragments/copy-row', {
+          label: 'Prompt',
+          value: `Add CloakTail user migration to this application, following ${specUrl}. Its client ID is ${app.client_id}. The migration secret is in the CLOAKTAIL_MIGRATION_SECRET environment variable; don't ask for it or print it.`,
+        }) %></dl>
+      </section>
+    </div>
     <ol class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-6 text-sm [&_code]:[overflow-wrap:anywhere]">
       <li class="flex min-w-0 gap-3">
         <span class="marker">1</span>
@@ -164,7 +193,8 @@
           <p class="font-medium">Check the old password as you do today</p>
           <p class="text-muted-foreground">
             Keep your login form. When the password is right and the user isn’t migrated yet (keep a flag such as <code>migrated_at</code> on your side),
-            don’t start a session: send them to CloakTail instead. Users you’ve already migrated go straight to Keycloak (step 4).
+            don’t start a session: keep a short pre-login session with their id and <code>state</code> (at least 30 minutes), and send them to CloakTail.
+            Users you’ve already migrated go straight to Keycloak (step 4).
           </p>
         </div>
       </li>
@@ -205,7 +235,7 @@
         <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3">
           <p class="font-medium">Handle the result at your return URL</p>
           <p class="text-muted-foreground">
-            The user chooses a new password on CloakTail (or cancels), then comes back to <code>return_url?result=&lt;JWT&gt;</code>.
+            The user chooses a new password<%= (migration?.settings.requireOtp ?? true) ? ' and adds an authenticator app' : '' %> on CloakTail (or cancels), then comes back to <code>return_url?result=&lt;JWT&gt;</code>.
             Check its HS256 signature with your migration secret, that <code>aud</code> is your client ID, that <code>exp</code> hasn’t passed,
             and that <code>state</code> matches the session. Then act on <code>status</code>:
           </p>
@@ -214,26 +244,30 @@
               <table class="table text-sm [&_td]:whitespace-normal [&_td]:align-top">
                 <thead><tr><th><code>status</code></th><th>Meaning</th><th>Your app</th></tr></thead>
                 <tbody>
-                  <tr><td><code>created</code></td><td>The Keycloak account exists with the new password.</td><td rowspan="2">Mark the user migrated, then sign them in with Keycloak (step 4).</td></tr>
-                  <tr><td><code>already_migrated</code></td><td>You migrated this user before; no password was asked.</td></tr>
+                  <tr><td><code>created</code></td><td>The Keycloak account exists with the new password.</td><td>Mark the user migrated and let them in at once: they already signed in with their old password.</td></tr>
+                  <tr><td><code>already_migrated</code></td><td>You migrated this user before; no password was asked.</td><td>Mark the user migrated, then sign them in with Keycloak (step 4).</td></tr>
                   <tr><td><code>conflict</code></td><td>A different Keycloak account has this username or email.</td><td>Tell the user; someone must sort it out.</td></tr>
                   <tr><td><code>cancelled</code>, <code>expired</code>, <code>error</code></td><td>No account was created.</td><td>Let them in the old way this time, and ask again next time.</td></tr>
                 </tbody>
               </table>
             </section>
           </div>
+          <p class="text-muted-foreground">
+            After <code>created</code>, turn the pre-login session into the user’s session, as a successful old-password sign-in would: they proved who they are moments ago.
+            If your app needs Keycloak tokens straight away, start a Keycloak sign-in instead.
+          </p>
           <p class="text-muted-foreground">The result also has <code>sub</code> (your user id), <code>preferred_username</code>, <code>keycloak_id</code> and <code>request_jti</code>. It is valid for 5 minutes.</p>
         </div>
       </li>
       <li class="flex min-w-0 gap-3">
         <span class="marker">4</span>
         <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
-          <p class="font-medium">Sign the user in with Keycloak</p>
+          <p class="font-medium">Sign migrated users in with Keycloak</p>
           <p class="text-muted-foreground">
-            Start your normal <%= app.protocol === 'oidc' ? 'OpenID Connect' : 'SAML' %> sign-in (set up on the <a href="/apps/<%= app.id %>" class="underline underline-offset-4">application page</a>)
+            From their next sign-in (and after <code>already_migrated</code>), start your normal <%= app.protocol === 'oidc' ? 'OpenID Connect' : 'SAML' %> sign-in (set up on the <a href="/apps/<%= app.id %>" class="underline underline-offset-4">application page</a>)
             <%- app.protocol === 'oidc' ? 'with <code>login_hint=&lt;preferred_username&gt;</code>, so the username is filled in' : 'with the username as the AuthnRequest’s Subject NameID, so Keycloak fills it in' %>.
-            The user types their new password<%= migration?.settings.requireOtp ?? true ? ' and, the first time, sets up an authenticator app' : '' %>.
-            From now on they only sign in with Keycloak.
+            The user types their new password<%= migration?.settings.requireOtp ?? true ? ' and a code from the authenticator app they added on CloakTail' : '' %>.
+            The old password no longer lets them in.
           </p>
         </div>
       </li>
@@ -246,8 +280,8 @@
       <h2>Testing it</h2>
       <section>
         Sign in to your app as a user who isn’t migrated yet and follow the redirect. If CloakTail turns a request down, the user only sees
-        “This link can’t be used”; the reason is listed under Recent requests below. A migrated user can then sign in with Keycloak,
-        including with this application’s <strong>Run test login</strong>.
+        “This link can’t be used”; the reason is listed under Recent requests below. After choosing a password<%= (migration?.settings.requireOtp ?? true) ? ' and adding an authenticator app' : '' %>, you should land back in your app signed in.
+        Sign out and in again to check the Keycloak sign-in, through your app or, unless the client requires signed requests, this application’s <strong>Run test login</strong>.
       </section>
     </div>
   </div>

@@ -5,8 +5,8 @@
   const fullName = [migration.firstName, migration.lastName].filter(Boolean).join(' ');
   const steps = [
     ['Choose a new password', 'You’ll use it with your username from now on.'],
-    ...(requireOtp ? [['Set up an authenticator app', 'The next time you sign in, you’ll scan a QR code with an app such as Google Authenticator, Microsoft Authenticator or FreeOTP.']] : []),
-    [`Back to ${appName}`, 'You’ll continue where you left off.'],
+    ...(otp ? [['Add your account to an authenticator app', 'Scan the QR code with an app such as Google Authenticator, Microsoft Authenticator or FreeOTP, and enter the code it shows. It’s all on this page.']] : []),
+    [`Back to ${appName}`, `You’re signed in and continue where you left off. Next time, sign in with your username and new password${otp ? ', and a code from your app' : ''}.`],
   ];
 %>
 <div class="mx-auto grid max-w-4xl items-start gap-10 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:gap-16 lg:py-10">
@@ -14,7 +14,7 @@
     <p class="text-sm font-medium text-muted-foreground"><%= appName %></p>
     <h1 class="mt-2 text-3xl font-semibold tracking-tight text-balance">Set up your new sign-in</h1>
     <p class="mt-3 max-w-md text-muted-foreground text-pretty">
-      <%= appName %> is moving to a new sign-in system. Your account details are already filled in; just choose a new password.
+      <%= appName %> is moving to a new sign-in system. Your account details are already filled in; just choose a new password<%= otp ? ' and add your account to an authenticator app' : '' %>.
     </p>
 
     <h2 class="mt-10 text-sm font-semibold">What happens next</h2>
@@ -52,6 +52,29 @@
 
         <%- include('../../fragments/text-field', { name: 'confirmPassword', label: 'Confirm new password', type: 'password', autocomplete: 'new-password', reveal: true,
               attrs: 'required minlength="8" maxlength="256"', invalid: err('confirmPassword') }) %>
+
+        <% if (otp && otp.verified) { %>
+          <div class="alert" role="status"><section>Authenticator app added. You’ll use it when you sign in.</section></div>
+        <% } else if (otp) { %>
+          <fieldset class="grid gap-3 border-t pt-4">
+            <legend class="float-left mb-1 text-sm font-medium">Authenticator app</legend>
+            <p class="clear-left text-sm text-muted-foreground">Scan this QR code with your authenticator app.</p>
+            <div class="flex flex-wrap items-start gap-4">
+              <div class="w-fit shrink-0 rounded-md border bg-white p-1.5 [&_svg]:block" role="img" aria-label="QR code for your authenticator app"><%- otp.qrSvg %></div>
+              <div class="min-w-0 flex-1 text-xs text-muted-foreground">
+                <p>Can’t scan it? Add an account in the app and enter this key:</p>
+                <p class="mt-1.5 break-all font-mono text-sm text-foreground select-all"><%= otp.manualKey %></p>
+              </div>
+            </div>
+            <div class="field gap-1.5" <%- err('otp') ? 'data-invalid="true"' : '' %>>
+              <label for="otp">Code from the app</label>
+              <input id="otp" name="otp" class="h-9 py-0 font-mono tracking-widest" inputmode="numeric" autocomplete="one-time-code"
+                     pattern="[0-9 ]{6,7}" maxlength="7" required aria-describedby="otp-error otp-hint" <%- err('otp') ? 'aria-invalid="true" autofocus' : '' %>>
+              <p id="otp-error" class="text-xs text-destructive" <%- err('otp') ? '' : 'hidden' %>><%= err('otp') || '' %></p>
+              <p id="otp-hint" class="text-xs">The 6-digit code changes every 30 seconds.</p>
+            </div>
+          </fieldset>
+        <% } %>
       </section>
       <footer class="grid gap-3">
         <button type="submit" class="btn w-full">Set password and continue</button>
@@ -76,11 +99,44 @@
       btn.setAttribute('aria-pressed', String(show));
     });
   });
-  // Prevent double submission while Keycloak creates the account.
-  document.getElementById('migrate-form').addEventListener('submit', (e) => {
-    const btn = e.target.querySelector('button[type=submit]');
+  const form = document.getElementById('migrate-form');
+  const btn = form.querySelector('button[type=submit]');
+  const label = btn.textContent;
+  const otp = document.getElementById('otp');
+  const otpError = document.getElementById('otp-error');
+  const showOtpError = (message) => {
+    otpError.textContent = message;
+    otpError.hidden = false;
+    otp.setAttribute('aria-invalid', 'true');
+    otp.closest('.field').dataset.invalid = 'true';
+    otp.focus();
+  };
+  form.addEventListener('submit', async (e) => {
+    if (btn.disabled) return e.preventDefault();
     btn.disabled = true;
+    // Check the authenticator code first: a wrong one would otherwise clear the passwords.
+    if (otp) {
+      e.preventDefault();
+      btn.textContent = 'Checking the code…';
+      try {
+        const res = await fetch('/migrate/otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': form.elements._csrf.value },
+          body: new URLSearchParams({ otp: otp.value }),
+        });
+        const body = await res.json();
+        if (!body.ok) {
+          btn.disabled = false;
+          btn.textContent = label;
+          return showOtpError(body.error || 'That code couldn’t be checked. Try again.');
+        }
+      } catch {
+        // The server checks the code again on submit.
+      }
+    }
+    // Prevent double submission while Keycloak creates the account.
     btn.textContent = 'Setting up your account…';
+    if (otp) form.submit();
   });
 </script>
 <%- include('../../partials/footer') %>

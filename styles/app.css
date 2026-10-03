@@ -40,6 +40,14 @@
   .page-description { @apply mt-1.5 max-w-2xl text-sm text-muted-foreground; }
   .page-actions { @apply flex flex-wrap items-center gap-2; }
 
+  /* Underlined tabs under a page header, as links between views of one page (the current one has aria-current). */
+  .page-tabs { @apply flex gap-6 overflow-x-auto border-b text-sm; }
+  .page-tabs > a {
+    @apply -mb-px inline-flex shrink-0 items-center gap-2 border-b-2 border-transparent pb-3 font-medium text-muted-foreground transition-colors hover:text-foreground;
+  }
+  .page-tabs > a[aria-current='page'] { @apply border-primary text-foreground; }
+  .page-tabs .badge { @apply px-1.5 py-0 text-[0.6875rem] tabular-nums; }
+
   .page-section { @apply grid gap-x-12 gap-y-4 border-t py-8 lg:grid-cols-[15rem_minmax(0,1fr)]; }
   .page-header + .page-section, .page-section:first-child { @apply border-t-0; }
   .section-intro > h2 { @apply text-sm font-semibold; }
@@ -130,3 +138,30 @@
 .code-window .hljs-variable,
 .code-window .hljs-property { color: #e6edf3; }
 .code-window .hljs-variable.language_ { color: #ff7b72; }
+
+/* Long-form Markdown rendered by src/lib/markdown.js (e.g. the agent guide on /developers). */
+@layer components {
+  .doc { @apply text-sm leading-relaxed; }
+  .doc h2 { @apply mt-12 scroll-mt-20 text-xl font-semibold tracking-tight; }
+  .doc h3 { @apply mt-8 scroll-mt-20 text-base font-semibold; }
+  .doc :is(h2, h3) > a { color: inherit; text-decoration: none; }
+  .doc :is(p, ul, ol, pre, table, blockquote) { @apply mt-3; }
+  .doc ul { @apply grid list-disc gap-1.5 pl-5; }
+  .doc ol { @apply grid list-decimal gap-2 pl-5; }
+  .doc li > :is(ul, ol, pre, p) { @apply mt-2; }
+  .doc a:not(:is(h2, h3) > a) { @apply underline underline-offset-2; }
+  .doc :not(pre) > code { @apply rounded bg-muted px-1 py-0.5 text-[0.8125rem]; }
+  .doc blockquote { @apply border-l-2 pl-4 text-muted-foreground; }
+  .doc table { @apply block w-full overflow-x-auto border-collapse text-left; }
+  .doc :is(th, td) { @apply border-b px-3 py-2 align-top; }
+  .doc th { @apply font-medium; }
+}
+
+/* HTTP method badge for API endpoints (GET/POST/…), coloured by data-tone. */
+@layer components {
+  .method {
+    @apply inline-flex w-14 shrink-0 justify-center rounded px-1.5 py-0.5 font-mono text-[0.6875rem] font-semibold;
+    color: var(--tone);
+    background: color-mix(in oklch, var(--tone) 14%, transparent);
+  }
+}

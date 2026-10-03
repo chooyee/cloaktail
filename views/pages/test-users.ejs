@@ -1,57 +1,95 @@
 <%- include('../partials/header') %>
+<%
+  const atLimit = users.length >= max;
+  // A failed "create" re-renders the page with the typed values: reopen its dialog with the error inside.
+  const createFailed = Boolean(error) && values.username !== undefined;
+  const swap = 'hx-target="#test-users" hx-select="#test-users" hx-swap="outerHTML"';
+%>
 <div id="test-users">
-  <header class="page-header">
+  <header class="page-header border-b-0 pb-5">
     <div class="min-w-0">
       <h1 class="page-title">Test users</h1>
-      <p class="page-description">Accounts in the <code><%= realm %></code> sandbox realm to sign in with during “Test connection”.</p>
+      <p class="page-description">Accounts in the <code><%= realm %></code> sandbox realm. Sign in with them during “Test connection”, and see the users your applications migrated there.</p>
     </div>
-    <div class="w-36 text-xs text-muted-foreground">
-      <p class="mb-1"><span class="font-medium text-foreground"><%= users.length %></span> of <%= max %> used</p>
-      <div class="meter"><span style="width: <%= Math.min(100, Math.round((users.length / Math.max(max, 1)) * 100)) %>%"></span></div>
-    </div>
+    <% if (view === 'accounts') { %>
+      <div class="page-actions">
+        <button type="button" class="btn" data-dialog="#new-test-user" <%= atLimit ? 'disabled' : '' %>
+                <%- atLimit ? `title="You have ${max} of ${max} test users. Delete one to create another."` : '' %>><%- icon('plus') %>New test user</button>
+      </div>
+    <% } %>
   </header>
 
-  <div class="mt-6">
-    <%- include('../fragments/form-status') %>
-  </div>
+  <nav class="page-tabs" aria-label="Test user views">
+    <a href="/test-users" <%- view === 'accounts' ? 'aria-current="page"' : '' %>>
+      Test accounts <span class="badge" data-variant="secondary"><%= users.length %>/<%= max %></span>
+    </a>
+    <a href="/test-users?view=migrated" <%- view === 'migrated' ? 'aria-current="page"' : '' %>>
+      Migrated users <span class="badge" data-variant="secondary"><%= migratedMore ? `${migrated.length}+` : migrated.length %></span>
+    </a>
+  </nav>
 
-  <div class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
-    <div class="self-start">
+  <% if (!createFailed && (error || message)) { %>
+    <div class="mt-6"><%- include('../fragments/form-status') %></div>
+  <% } %>
+
+  <% if (view === 'accounts') { %>
+    <%# ---------- The developer's own test accounts ---------- %>
+    <section class="mt-6 grid gap-4" aria-labelledby="accounts-heading">
+      <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+        <div class="min-w-0">
+          <h2 id="accounts-heading" class="sr-only">Test accounts</h2>
+          <p class="max-w-2xl text-sm text-muted-foreground">Use these on the Keycloak sign-in page when you test an application. Their profile becomes the attributes and claims your app receives.</p>
+        </div>
+        <div class="w-40 text-xs text-muted-foreground">
+          <p class="mb-1 flex justify-between"><span>Quota</span><span><span class="font-medium text-foreground"><%= users.length %></span> of <%= max %> used</span></p>
+          <div class="meter" role="progressbar" aria-label="Test users used" aria-valuemin="0" aria-valuemax="<%= max %>" aria-valuenow="<%= users.length %>"><span style="width: <%= Math.min(100, Math.round((users.length / Math.max(max, 1)) * 100)) %>%"></span></div>
+        </div>
+      </div>
+
+      <% if (atLimit) { %>
+        <div class="alert" data-tone="info" role="status"><%- icon('info') %><section>You’ve used all <%= max %> test users. Delete one to create another, or change an existing one’s password.</section></div>
+      <% } %>
+
       <% if (users.length === 0) { %>
-        <div class="empty rounded-xl border border-dashed bg-background" data-tone="success">
+        <div class="empty rounded-xl border border-dashed bg-background">
           <header>
             <span class="icon-tile mx-auto mb-2"><%- icon('testUser') %></span>
             <h3>No test users yet</h3>
-            <p>Create one to sign in with when testing your applications.</p>
+            <p>Create an account to sign in with when you run “Test connection” on an application.</p>
           </header>
+          <section>
+            <button type="button" class="btn" data-dialog="#new-test-user"><%- icon('plus') %>New test user</button>
+          </section>
         </div>
       <% } else { %>
         <div class="card card-table"><section>
           <table class="table">
-            <thead><tr><th>Username</th><th>Name</th><th>Email</th><th class="text-right">Actions</th></tr></thead>
+            <thead><tr><th>User</th><th>Email</th><th class="text-right"><span class="sr-only">Actions</span></th></tr></thead>
             <tbody>
               <% for (const u of users) { %>
+                <% const name = u.kc ? [u.kc.firstName, u.kc.lastName].filter(Boolean).join(' ') : ''; %>
                 <tr>
-                  <td class="font-medium">
-                    <%= u.username %>
-                    <% if (!u.kc) { %><span class="badge ml-1" data-tone="danger">missing in Keycloak</span><% } %>
-                  </td>
-                  <td><%= u.kc ? [u.kc.firstName, u.kc.lastName].filter(Boolean).join(' ') || '—' : '—' %></td>
-                  <td><%= u.kc?.email || '—' %></td>
                   <td>
-                    <div class="flex items-center justify-end gap-2">
+                    <div class="flex items-center gap-3">
+                      <span class="icon-tile size-8 rounded-full text-xs font-semibold uppercase" aria-hidden="true"><%= (name || u.username).charAt(0) %></span>
+                      <div class="min-w-0">
+                        <p class="font-medium"><%= name || u.username %></p>
+                        <p class="font-mono text-xs text-muted-foreground"><%= u.username %></p>
+                      </div>
+                      <% if (!u.kc) { %><span class="badge" data-tone="danger">Missing in Keycloak</span><% } %>
+                    </div>
+                  </td>
+                  <td class="text-muted-foreground"><%= u.kc?.email || '—' %></td>
+                  <td>
+                    <div class="flex items-center justify-end gap-1">
                       <% if (u.kc) { %>
-                        <form class="flex gap-2" hx-post="/test-users/<%= u.id %>/password"
-                              hx-target="#test-users" hx-select="#test-users" hx-swap="outerHTML">
-                          <label for="pw-<%= u.id %>" class="sr-only">New password for <%= u.username %></label>
-                          <input id="pw-<%= u.id %>" class="input h-8 w-36" type="password" name="password"
-                                 placeholder="New password" minlength="8" required autocomplete="new-password">
-                          <button type="submit" class="btn" data-variant="outline" data-size="sm">Set</button>
-                        </form>
+                        <button type="button" class="btn" data-variant="outline" data-size="sm" data-dialog="#pw-<%= u.id %>"><%- icon('key') %>Set password</button>
                       <% } %>
-                      <button class="btn" data-variant="ghost" data-size="sm" hx-post="/test-users/<%= u.id %>/delete"
-                              hx-target="#test-users" hx-select="#test-users" hx-swap="outerHTML"
-                              hx-confirm="Delete test user <%= u.username %>?">Delete</button>
+                      <button type="button" class="btn text-destructive" data-variant="ghost" data-size="icon-sm" aria-label="Delete <%= u.username %>" title="Delete <%= u.username %>"
+                              hx-post="/test-users/<%= u.id %>/delete" <%- swap %>
+                              hx-confirm="Delete test user <%= u.username %>? Their Keycloak account is removed.">
+                        <%- icon('trash') %>
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -59,42 +97,175 @@
             </tbody>
           </table>
         </section></div>
-      <% } %>
-    </div>
 
-    <form class="card self-start" hx-post="/test-users" hx-target="#test-users" hx-select="#test-users" hx-swap="outerHTML">
-      <header>
-        <h2>New test user</h2>
-        <p>The profile fields become the SAML attributes your app receives.</p>
-      </header>
-      <section class="grid gap-4">
-        <div class="field">
-          <label for="tu-username">Username</label>
-          <input id="tu-username" name="username" type="text" required autocomplete="off" value="<%= values.username || '' %>">
+        <%# One password dialog per account (at most `max` of them). %>
+        <% for (const u of users.filter((x) => x.kc)) { %>
+          <dialog id="pw-<%= u.id %>" class="dialog" aria-labelledby="pw-<%= u.id %>-title">
+            <form hx-post="/test-users/<%= u.id %>/password" <%- swap %>>
+              <header>
+                <h2 id="pw-<%= u.id %>-title">Set password</h2>
+                <p class="text-muted-foreground">For <span class="font-mono text-foreground"><%= u.username %></span>. Use it the next time you sign in as this user.</p>
+              </header>
+              <section class="grid gap-4">
+                <div class="field">
+                  <label for="pw-<%= u.id %>-input">New password</label>
+                  <input id="pw-<%= u.id %>-input" type="password" name="password" minlength="8" required autocomplete="new-password">
+                  <p class="text-xs text-muted-foreground">At least 8 characters.</p>
+                </div>
+              </section>
+              <footer>
+                <button type="button" class="btn" data-variant="outline" data-dialog-close>Cancel</button>
+                <button type="submit" class="btn">Set password</button>
+              </footer>
+              <button type="button" aria-label="Close" data-dialog-close><%- icon('x') %></button>
+            </form>
+          </dialog>
+        <% } %>
+      <% } %>
+
+      <dialog id="new-test-user" class="dialog" aria-labelledby="new-test-user-title" <%- createFailed ? 'data-autoopen' : '' %>>
+        <form hx-post="/test-users" <%- swap %>>
+          <header>
+            <h2 id="new-test-user-title">New test user</h2>
+            <p class="text-muted-foreground">The profile fields become the SAML attributes and OIDC claims your app receives.</p>
+          </header>
+          <section class="grid gap-4">
+            <% if (createFailed) { %>
+              <div class="alert" data-variant="destructive" role="alert"><section><%= error %></section></div>
+            <% } %>
+            <div class="field">
+              <label for="tu-username">Username</label>
+              <input id="tu-username" name="username" type="text" required autocomplete="off" value="<%= values.username || '' %>">
+            </div>
+            <div class="field">
+              <label for="tu-email">Email</label>
+              <input id="tu-email" name="email" type="email" required value="<%= values.email || '' %>">
+            </div>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <div class="field">
+                <label for="tu-first">First name</label>
+                <input id="tu-first" name="firstName" type="text" required value="<%= values.firstName || '' %>">
+              </div>
+              <div class="field">
+                <label for="tu-last">Last name</label>
+                <input id="tu-last" name="lastName" type="text" required value="<%= values.lastName || '' %>">
+              </div>
+            </div>
+            <div class="field">
+              <label for="tu-password">Password</label>
+              <input id="tu-password" name="password" type="password" required minlength="8" autocomplete="new-password">
+              <p class="text-xs text-muted-foreground">At least 8 characters. You’ll type it on the Keycloak sign-in page.</p>
+            </div>
+          </section>
+          <footer>
+            <button type="button" class="btn" data-variant="outline" data-dialog-close>Cancel</button>
+            <button type="submit" class="btn" <%= atLimit ? 'disabled' : '' %>><%- icon('plus') %>Create test user</button>
+          </footer>
+          <button type="button" aria-label="Close" data-dialog-close><%- icon('x') %></button>
+        </form>
+      </dialog>
+    </section>
+
+  <% } else { %>
+    <%# ---------- Users of the developer's applications who moved into the sandbox realm through user migration ---------- %>
+    <section id="migrated-users" class="mt-6 grid gap-4" aria-labelledby="migrated-heading">
+      <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+        <div class="min-w-0">
+          <h2 id="migrated-heading" class="sr-only">Migrated users</h2>
+          <p class="max-w-2xl text-sm text-muted-foreground">
+            Users of your applications who moved into <code><%= realm %></code> through user migration. They now sign in with Keycloak.
+            Delete one to test their migration again.
+          </p>
         </div>
-        <div class="field">
-          <label for="tu-email">Email</label>
-          <input id="tu-email" name="email" type="email" required value="<%= values.email || '' %>">
-        </div>
-        <div class="grid gap-4 sm:grid-cols-2">
-          <div class="field">
-            <label for="tu-first">First name</label>
-            <input id="tu-first" name="firstName" type="text" required value="<%= values.firstName || '' %>">
+        <% if (migrated.length > 5) { %>
+          <div class="field w-full sm:w-64">
+            <label for="migrated-filter" class="sr-only">Filter migrated users</label>
+            <input id="migrated-filter" type="search" class="h-9 py-0" placeholder="Filter by username, id or app" autocomplete="off" data-filter="#migrated-users tbody tr">
           </div>
-          <div class="field">
-            <label for="tu-last">Last name</label>
-            <input id="tu-last" name="lastName" type="text" required value="<%= values.lastName || '' %>">
-          </div>
+        <% } %>
+      </div>
+
+      <% if (migrated.length === 0) { %>
+        <div class="empty rounded-xl border border-dashed bg-background">
+          <header>
+            <span class="icon-tile mx-auto mb-2"><%- icon('users') %></span>
+            <h3>No migrated users yet</h3>
+            <p>When your application sends its users to CloakTail to move into Keycloak, they show here.</p>
+          </header>
+          <section>
+            <a href="/apps" class="btn" data-variant="outline">Set up user migration on an application<%- icon('arrowRight') %></a>
+          </section>
         </div>
-        <div class="field">
-          <label for="tu-password">Password</label>
-          <input id="tu-password" name="password" type="password" required minlength="8" autocomplete="new-password">
-        </div>
-      </section>
-      <footer class="flex justify-end">
-        <button type="submit" class="btn" <%= users.length >= max ? 'disabled' : '' %>><%- icon('plus') %>Create test user</button>
-      </footer>
-    </form>
-  </div>
+      <% } else { %>
+        <div class="card card-table"><section>
+          <table class="table text-sm [&_td]:align-top">
+            <thead><tr><th>User</th><th>Application</th><th>Migrated (UTC)</th><th>How</th><th class="hidden xl:table-cell">Keycloak id</th><th class="text-right"><span class="sr-only">Actions</span></th></tr></thead>
+            <tbody>
+              <% for (const m of migrated) { %>
+                <tr>
+                  <td class="min-w-48">
+                    <p class="font-medium break-all"><%= m.username %></p>
+                    <p class="font-mono text-xs break-all text-muted-foreground" title="Your user id"><%= m.legacy_id %></p>
+                  </td>
+                  <td><a class="underline underline-offset-4" href="/apps/<%= m.app_id %>/migration"><%= m.app_name %></a></td>
+                  <td class="whitespace-nowrap text-muted-foreground"><%= m.migrated_at %></td>
+                  <td><% if (m.linked_by) { %><span class="badge" data-tone="neutral">Linked by <%= m.linked_by %></span><% } else { %><span class="badge" data-tone="success">Migrated</span><% } %></td>
+                  <td class="hidden font-mono text-xs break-all text-muted-foreground xl:table-cell"><%= m.keycloak_id %></td>
+                  <td class="text-right">
+                    <% const ids = JSON.stringify({ appId: String(m.app_id), sub: m.legacy_id }); %>
+                    <% if (m.linked_by) { %>
+                      <button class="btn" data-variant="ghost" data-size="sm" hx-post="/test-users/migrated/unlink" hx-vals="<%= ids %>" <%- swap %>
+                              hx-confirm="Unlink <%= m.username %> from <%= m.app_name %>? The Keycloak account is kept; the next migration request for this user links it again or answers conflict.">Unlink</button>
+                    <% } else { %>
+                      <button class="btn text-destructive" data-variant="ghost" data-size="sm" hx-post="/test-users/migrated/delete" hx-vals="<%= ids %>" <%- swap %>
+                              hx-confirm="Delete <%= m.username %> from Keycloak? Their password and authenticator app are lost. Clear <%= m.app_name %>’s own migrated flag for them, or they can’t sign in until it sends them to CloakTail again."><%- icon('trash') %>Delete</button>
+                    <% } %>
+                  </td>
+                </tr>
+              <% } %>
+            </tbody>
+          </table>
+        </section></div>
+        <p id="migrated-none" class="text-sm text-muted-foreground" hidden>No migrated user matches.</p>
+        <% if (migratedMore) { %>
+          <p class="text-xs text-muted-foreground">Showing the latest <%= migrated.length %> migrated users.</p>
+        <% } %>
+      <% } %>
+    </section>
+  <% } %>
 </div>
+
+<script>
+  // Dialogs: [data-dialog="#id"] opens one, [data-dialog-close] or a click on the backdrop closes it, and a
+  // dialog with data-autoopen (a create that failed) opens after load or an htmx swap. All delegated, so they
+  // keep working after htmx swaps the page.
+  document.addEventListener('click', (e) => {
+    const opener = e.target.closest('[data-dialog]');
+    if (opener) {
+      const dialog = document.querySelector(opener.dataset.dialog);
+      dialog?.showModal();
+      dialog?.querySelector('input:not([type=hidden])')?.focus();
+      return;
+    }
+    if (e.target.closest('[data-dialog-close]')) return e.target.closest('dialog')?.close();
+    if (e.target instanceof HTMLDialogElement) e.target.close();
+  });
+  const autoOpen = () => document.querySelectorAll('dialog[data-autoopen]:not([open])').forEach((d) => d.showModal());
+  document.addEventListener('DOMContentLoaded', autoOpen);
+  document.addEventListener('htmx:afterSettle', autoOpen);
+
+  // Filters the migrated users as you type.
+  document.addEventListener('input', (e) => {
+    const input = e.target.closest('#migrated-filter');
+    if (!input) return;
+    const q = input.value.trim().toLowerCase();
+    let shown = 0;
+    document.querySelectorAll(input.dataset.filter).forEach((row) => {
+      const match = !q || row.textContent.toLowerCase().includes(q);
+      row.hidden = !match;
+      if (match) shown += 1;
+    });
+    document.getElementById('migrated-none').hidden = shown > 0;
+  });
+</script>
 <%- include('../partials/footer') %>

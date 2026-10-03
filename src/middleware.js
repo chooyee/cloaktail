@@ -69,6 +69,9 @@ export function requireAdmin(req, res, next) {
   next();
 }
 
+// Who acts in a service call (src/services): the signed-in developer, with their permissions.
+export const actorOf = (req) => ({ username: req.user.username, can: req.can });
+
 export function requireAuth(req, res, next) {
   if (req.user) return next();
   const target = `/login?returnTo=${encodeURIComponent(req.originalUrl)}`;

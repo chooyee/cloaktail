@@ -2,14 +2,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
+import swaggerUi from 'swagger-ui-dist';
 import passport from 'passport';
 import { sessionMiddleware } from './session.js';
 import { authRouter } from './auth.js';
 import { usersRouter } from './routes/users.js';
 import { rolesRouter } from './routes/roles.js';
 import { registerRouter } from './routes/register.js';
-import { migrateRouter } from './routes/migrate.js';
+import { migrateRouter, migrateApiRouter } from './routes/migrate.js';
 import { appsRouter, testAcsRouter } from './routes/apps.js';
+import { apiRouter, API_BASE, API_DESCRIPTIONS } from './routes/api.js';
+import { apiCredentialsRouter } from './routes/apiCredentials.js';
+import { developersRouter } from './routes/developers.js';
 import { testUsersRouter } from './routes/testUsers.js';
 import { toolsRouter, publicToolsRouter } from './routes/tools.js';
 import { adminRouter } from './routes/admin.js';
@@ -102,9 +106,29 @@ const markdown = (full) => (req, res) => res.type('text/markdown; charset=utf-8'
   .set('Cache-Control', 'public, max-age=3600').send(seo.llmsText({ full, baseUrl: req.siteUrl }));
 app.get('/llms.txt', markdown(false));
 app.get('/llms-full.txt', markdown(true));
+// User migration's spec and testing endpoints, for developers' servers and coding agents: no session.
+app.use('/migrate', migrateApiRouter);
+// The developer REST API (routes/api.js): bearer tokens only, no session or CSRF token.
+app.use(API_BASE, apiRouter);
+// RFC 9727 API catalog: where agents and tools look for a site's APIs.
+app.get('/.well-known/api-catalog', (req, res) => {
+  const abs = (links) => links.map((l) => ({ ...l, href: `${req.siteUrl}${l.href}` }));
+  res.type('application/linkset+json; profile="https://www.rfc-editor.org/info/rfc9727"')
+    .set({ 'Cache-Control': 'public, max-age=3600', Link: '</.well-known/api-catalog>; rel="api-catalog"' })
+    .send(JSON.stringify({
+      linkset: [{
+        anchor: `${req.siteUrl}${API_BASE}`,
+        ...Object.fromEntries(Object.entries(API_DESCRIPTIONS).map(([rel, links]) => [rel, abs(links)])),
+      }],
+    }));
+});
 
 app.use('/static/vendor/htmx.min.js', (req, res) =>
   res.sendFile(path.join(root, 'node_modules/htmx.org/dist/htmx.min.js')));
+// Swagger UI for /api/v1/docs: only the two files it needs.
+for (const file of ['swagger-ui.css', 'swagger-ui-bundle.js']) {
+  app.use(`/static/vendor/swagger-ui/${file}`, (req, res) => res.sendFile(path.join(swaggerUi.getAbsoluteFSPath(), file)));
+}
 app.use('/static/vendor/basecoat.min.js', (req, res) =>
   res.sendFile(path.join(root, 'node_modules/basecoat-css/dist/js/all.min.js')));
 
@@ -150,6 +174,8 @@ app.get('/troubleshooting/:slug', (req, res) => {
     baseUrl: req.siteUrl,
   });
 });
+// Public pages about the developer REST API.
+app.use('/developers', developersRouter);
 app.get('/disclaimer', (req, res) => res.render('pages/disclaimer', {
   title: 'Disclaimer',
   description: 'CloakTail and its sandbox realm are for development and testing only. Do not use real personal data or production credentials.',
@@ -168,6 +194,7 @@ app.use('/users', requireAuth, usersRouter);
 app.use('/roles', requireAuth, rolesRouter);
 app.use('/apps', requireAuth, appsRouter);
 app.use('/test-users', requireAuth, testUsersRouter);
+app.use('/api-credentials', requireAuth, apiCredentialsRouter);
 app.use('/tools', publicToolsRouter);
 app.use('/tools', requireAuth, toolsRouter);
 app.use('/admin', adminRouter);

@@ -95,7 +95,8 @@ export function createAdminClient(getSettings, secretLabel) {
     // The realm's user profile configuration (declared attributes, unmanaged attribute policy).
     getUserProfileConfig: () => request('GET', '/users/profile'),
 
-    createUser: ({ username, email, firstName, lastName, enabled = true, emailVerified = false, password, temporary, requiredActions, attributes }) =>
+    // otherCredentials: stored as given (e.g. an OTP credential with secretData and credentialData).
+    createUser: ({ username, email, firstName, lastName, enabled = true, emailVerified = false, password, temporary, requiredActions, attributes, otherCredentials = [] }) =>
       request('POST', '/users', {
         body: {
           username,
@@ -106,7 +107,10 @@ export function createAdminClient(getSettings, secretLabel) {
           emailVerified,
           requiredActions,
           attributes,
-          credentials: password ? [{ type: 'password', value: password, temporary: Boolean(temporary) }] : undefined,
+          credentials: [
+            ...(password ? [{ type: 'password', value: password, temporary: Boolean(temporary) }] : []),
+            ...otherCredentials,
+          ],
         },
       }),
 

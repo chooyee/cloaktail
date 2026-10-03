@@ -2,10 +2,11 @@
 // written to disk by `npm run seo:export`, from the same code.
 import { config } from './config.js';
 import * as content from './content.js';
+import { devUpdated } from './developersContent.js';
 
 // The public pages search engines may index; everything else is noindex (see app.js).
 export const indexedPaths = ({ registrationEnabled = config.registration.enabled } = {}) => [
-  '/', '/troubleshooting', ...content.problems.map((p) => `/troubleshooting/${p.slug}`), '/tools/decode', '/tools/decode/jwt', '/disclaimer',
+  '/', '/troubleshooting', ...content.problems.map((p) => `/troubleshooting/${p.slug}`), '/tools/decode', '/tools/decode/jwt', '/developers', '/developers/api', '/disclaimer',
   ...(registrationEnabled ? ['/register'] : []),
 ];
 
@@ -22,6 +23,11 @@ export const robotsText = ({ baseUrl = config.baseUrl } = {}) => [
   ...aiCrawlers.map((bot) => `User-agent: ${bot}`),
   'Allow: /llms.txt',
   'Allow: /llms-full.txt',
+  // The developer API's documents are for agents; its other endpoints need a token.
+  'Allow: /api/v1/agent.md',
+  'Allow: /api/v1/openapi.json',
+  'Allow: /.well-known/api-catalog',
+  'Disallow: /api/',
   'Disallow: /admin',
   'Disallow: /auth/',
   'Disallow: /saml/',
@@ -33,7 +39,7 @@ export const robotsText = ({ baseUrl = config.baseUrl } = {}) => [
 
 export function sitemapXml({ baseUrl = config.baseUrl, registrationEnabled } = {}) {
   const urls = indexedPaths({ registrationEnabled })
-    .map((p) => `  <url><loc>${baseUrl}${p}</loc><lastmod>${content.updated}</lastmod></url>`).join('\n');
+    .map((p) => `  <url><loc>${baseUrl}${p}</loc><lastmod>${p.startsWith('/developers') ? devUpdated : content.updated}</lastmod></url>`).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
 }
 

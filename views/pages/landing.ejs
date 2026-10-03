@@ -13,15 +13,25 @@
     { tag: 'Debug', title: 'I’m debugging a login', text: 'Run a test login to see the signatures, audience and attributes of a SAML response, or the tokens and claims of an OIDC login.', href: '#test-login', cta: 'See how testing works' },
     { tag: 'Decode', title: 'I have a SAML message or a JWT', text: 'Decode a SAMLResponse or an ID token and verify a JWT signature, right in your browser.', href: '/tools/decode', cta: 'Open the decoders' },
     { tag: 'Tool', title: 'I need a certificate', text: 'Generate a key pair and self-signed PEM certificate for signed SAML requests or encrypted assertions.', href: user ? '/tools/certificate' : '/register', cta: 'Open the generator' },
+    { tag: 'Automate', title: 'I want my coding agent to do it', text: 'Give Claude Code, Cursor or Copilot an API credential. It registers the client, writes the config and hands you a test login to check.', href: '/developers', cta: 'See the developer API' },
   ];
   const check = '<svg class="size-4 shrink-0 text-emerald-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M16.7 5.3a1 1 0 0 1 0 1.4l-8 8a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.4L8 12.6l7.3-7.3a1 1 0 0 1 1.4 0Z" clip-rule="evenodd"/></svg>';
   const arrow = '<svg class="size-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M3 10a.75.75 0 0 1 .75-.75h10.6l-3.9-3.7a.75.75 0 1 1 1.04-1.08l5.25 5a.75.75 0 0 1 0 1.08l-5.25 5a.75.75 0 1 1-1.04-1.08l3.9-3.72H3.75A.75.75 0 0 1 3 10Z" clip-rule="evenodd"/></svg>';
+  // Pictures: Lucide icons in brand-tinted tiles, keyed by each item's tag (or position for the steps).
+  const tile = (name) => `<span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/15">${icon(name, 'size-5')}</span>`;
+  const quickstartIcons = ['user', 'testUser', 'apps', 'play'];
+  const journeyIcons = { Integrate: 'plug', Debug: 'bug', Decode: 'decoder', Tool: 'certificate', Automate: 'bot' };
+  const featureIcons = { 'Self-service': 'apps', Sandbox: 'sandbox', Test: 'shieldCheck', Identities: 'users', Reference: 'copy', Tools: 'decoder', API: 'bot' };
+  const actorIcons = { CloakTail: 'shieldCheck', You: 'user' };
   const chevron = '<svg class="size-4 text-muted-foreground" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.2 7.2a.75.75 0 0 1 1.06 0L10 10.94l3.74-3.74a.75.75 0 1 1 1.06 1.06l-4.27 4.27a.75.75 0 0 1-1.06 0L5.2 8.26a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd"/></svg>';
 %>
 <%- include('../partials/header', { structuredData }) %>
 
 <%# ================= Hero ================= %>
-<section class="border-b bg-[radial-gradient(ellipse_at_top,var(--color-muted),transparent_60%)]">
+<section class="relative isolate overflow-hidden border-b bg-[radial-gradient(ellipse_at_top,var(--color-muted),transparent_60%)]">
+  <%# Backdrop: a faint dot grid fading out from the top, and a soft brand glow behind the preview. %>
+  <div class="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(var(--color-border)_1px,transparent_1px)] [background-size:22px_22px] [mask-image:radial-gradient(ellipse_80%_70%_at_50%_0%,black,transparent)]" aria-hidden="true"></div>
+  <div class="pointer-events-none absolute -top-24 right-0 -z-10 hidden size-[36rem] rounded-full bg-primary/15 blur-3xl lg:block" aria-hidden="true"></div>
   <div class="mx-auto grid max-w-6xl items-center gap-12 px-4 py-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:py-24">
     <div class="min-w-0">
       <p class="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
@@ -39,6 +49,11 @@
         <a href="#quickstart" class="btn" data-variant="outline" data-size="lg">Read the quickstart</a>
       </div>
       <p class="mt-6 text-sm text-muted-foreground">About 5 minutes from sign-up to your first verified login.</p>
+      <p class="mt-4 max-w-xl border-l-2 border-emerald-500 pl-3 text-sm text-muted-foreground text-pretty">
+        <span class="font-medium text-foreground"><%= content.agentPitch.lead %></span>
+        <%= content.agentPitch.text %>
+        <a href="<%= content.agentPitch.href %>" class="inline-flex items-center gap-1 font-medium text-foreground hover:underline"><%= content.agentPitch.link %> <%- arrow %></a>
+      </p>
     </div>
 
     <%# Product preview: what a test login shows. Tabs work without JS (first panel visible). %>
@@ -139,8 +154,8 @@
       <% quickstart.forEach((s, i) => { %>
         <li class="flex flex-col bg-background p-6">
           <div class="flex items-center justify-between">
-            <span class="flex size-8 items-center justify-center rounded-full border font-mono text-sm"><%= i + 1 %></span>
-            <span class="text-xs text-muted-foreground"><%= s.time %></span>
+            <%- tile(quickstartIcons[i]) %>
+            <span class="font-mono text-xs text-muted-foreground">Step <%= i + 1 %> · <%= s.time %></span>
           </div>
           <h3 class="mt-5 font-semibold"><%= s.title %></h3>
           <p class="mt-1.5 flex-1 text-sm text-muted-foreground"><%= s.text %></p>
@@ -157,19 +172,23 @@
 <section class="border-y bg-muted/40">
   <div class="mx-auto max-w-6xl px-4 py-20">
     <h2 class="text-3xl font-semibold tracking-tight">What are you here to do?</h2>
-    <div class="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-      <% for (const j of journeys) { %>
-        <a href="<%= j.href %>" class="group card transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2">
+    <%# Five cards: three then two on large screens, the last one full width on medium. %>
+    <div class="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-6">
+      <% journeys.forEach((j, i) => { %>
+        <a href="<%= j.href %>" class="group card <%= i < 3 ? 'lg:col-span-2' : 'lg:col-span-3' %> <%= i === journeys.length - 1 ? 'md:col-span-2' : '' %> transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2">
           <header>
-            <span class="w-fit rounded-md border px-2 py-0.5 text-xs font-medium text-muted-foreground"><%= j.tag %></span>
-            <h3 class="mt-3 text-lg font-semibold"><%= j.title %></h3>
+            <div class="flex items-center justify-between">
+              <%- tile(journeyIcons[j.tag]) %>
+              <span class="w-fit rounded-md border px-2 py-0.5 text-xs font-medium text-muted-foreground"><%= j.tag %></span>
+            </div>
+            <h3 class="mt-4 text-lg font-semibold"><%= j.title %></h3>
             <p><%= j.text %></p>
           </header>
           <footer>
             <span class="inline-flex items-center gap-1 text-sm font-medium group-hover:underline"><%= j.cta %> <%- arrow %></span>
           </footer>
         </a>
-      <% } %>
+      <% }) %>
     </div>
   </div>
 </section>
@@ -182,14 +201,53 @@
       <h2 class="mt-2 text-3xl font-semibold tracking-tight">Everything a SAML or OIDC integration needs</h2>
     </div>
     <div class="mt-12 grid gap-x-10 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
-      <% for (const f of features) { %>
+      <% for (const f of features.filter((f) => !f.href)) { %>
         <div>
-          <span class="text-xs font-medium uppercase tracking-wider text-muted-foreground"><%= f.tag %></span>
-          <h3 class="mt-2 font-semibold"><%= f.title %></h3>
+          <%- tile(featureIcons[f.tag]) %>
+          <span class="mt-4 block text-xs font-medium uppercase tracking-wider text-muted-foreground"><%= f.tag %></span>
+          <h3 class="mt-1 font-semibold"><%= f.title %></h3>
           <p class="mt-2 text-sm leading-relaxed text-muted-foreground"><%= f.text %></p>
         </div>
       <% } %>
     </div>
+
+    <%# Features with a link (the agent API) get a full-width panel with a picture of an agent run. %>
+    <% for (const f of features.filter((f) => f.href)) { %>
+      <div class="mt-16 grid items-center gap-10 overflow-hidden rounded-2xl border bg-muted/40 p-6 sm:p-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <div class="min-w-0">
+          <%- tile(featureIcons[f.tag]) %>
+          <span class="mt-4 block text-xs font-medium uppercase tracking-wider text-muted-foreground"><%= f.tag %></span>
+          <h3 class="mt-1 text-2xl font-semibold tracking-tight"><%= f.title %></h3>
+          <p class="mt-3 text-sm leading-relaxed text-muted-foreground"><%= f.text %></p>
+          <a href="<%= f.href %>" class="btn mt-6" data-variant="outline"><%= f.link %> <%- arrow %></a>
+        </div>
+        <%# What a coding agent does for "add OpenID Connect login": the same calls as on /developers. %>
+        <figure class="min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-xl shadow-zinc-950/20">
+          <div class="flex items-center gap-2 border-b border-zinc-800 px-4 py-3">
+            <span class="size-2.5 rounded-full bg-zinc-700" aria-hidden="true"></span>
+            <span class="size-2.5 rounded-full bg-zinc-700" aria-hidden="true"></span>
+            <span class="size-2.5 rounded-full bg-zinc-700" aria-hidden="true"></span>
+            <span class="ml-2 truncate text-xs text-zinc-400">Terminal · your coding agent</span>
+          </div>
+          <div class="overflow-x-auto p-5 font-mono text-[13px] leading-6">
+            <p class="text-zinc-400"><span class="text-indigo-300">›</span> <span class="text-zinc-100">add OpenID Connect login, using CloakTail</span></p>
+            <ul class="mt-3 grid gap-1">
+              <% for (const [m, path] of content.agentRun) { %>
+                <li class="flex gap-3 whitespace-nowrap">
+                  <% if (m) { %>
+                    <span class="w-10 shrink-0 <%= m === 'GET' ? 'text-sky-300' : 'text-amber-200' %>"><%= m %></span><span class="text-zinc-300">/api/v1<%= path %></span>
+                  <% } else { %>
+                    <span class="w-10 shrink-0 text-zinc-500">edit</span><span class="text-zinc-300">src/auth/oidc.ts</span>
+                  <% } %>
+                </li>
+              <% } %>
+            </ul>
+            <p class="mt-4 flex items-start gap-2 text-zinc-300"><%- check %><span>Test login passed. Every check is green, and the secrets went straight into <span class="text-zinc-100">.env</span>.</span></p>
+          </div>
+          <figcaption class="sr-only">An AI coding agent setting up OpenID Connect through the CloakTail developer API.</figcaption>
+        </figure>
+      </div>
+    <% } %>
   </div>
 </section>
 
@@ -203,8 +261,9 @@
     </div>
     <ol class="mt-12 grid gap-4 md:grid-cols-4">
       <% content.testSteps(ctx).forEach((step, i, all) => { %>
-        <li class="relative rounded-xl border p-5">
-          <p class="font-mono text-xs text-muted-foreground"><%= String(i + 1).padStart(2, '0') %> · <%= step.who %></p>
+        <li class="relative rounded-xl border bg-background p-5">
+          <%- tile(actorIcons[step.who] ?? 'server') %>
+          <p class="mt-4 font-mono text-xs text-muted-foreground"><%= String(i + 1).padStart(2, '0') %> · <%= step.who %></p>
           <p class="mt-2 text-sm font-medium"><%= step.what %></p>
           <% if (i < all.length - 1) { %>
             <span class="absolute -right-3 top-1/2 z-10 hidden -translate-y-1/2 rounded-full border bg-background p-0.5 text-muted-foreground md:block"><%- arrow %></span>
