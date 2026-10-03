@@ -499,6 +499,62 @@ export const promotePendingSpKey = (profileId) => transaction(async () => {
 export const deleteSpKeyRow = (profileId, status) =>
   exec('DELETE FROM sp_keys WHERE profile_id = $1 AND status = $2', [profileId, status]);
 
+// ---------- user migration clients (rows as stored; migrationClients.js decrypts) ----------
+// Managed from the admin console by profile id; /migrate looks them up in the request's profile.
+
+export const listMigrationClientRows = (profileId) => all(`
+  SELECT c.*,
+    (SELECT COUNT(*)::int FROM migration_events e WHERE e.client_pk = c.id AND e.status IN ('created', 'already_migrated')) AS migrated,
+    (SELECT COUNT(*)::int FROM migration_events e WHERE e.client_pk = c.id AND e.status = 'conflict') AS conflicts
+  FROM migration_clients c WHERE c.profile_id = $1 ORDER BY lower(c.name)
+`, [profileId]);
+
+export const getMigrationClientRow = async (profileId, id) =>
+  (validId(id) ? one('SELECT * FROM migration_clients WHERE id = $1 AND profile_id = $2', [id, profileId]) : null);
+
+export const getMigrationClientRowByClientId = (profileId, clientId) =>
+  one('SELECT * FROM migration_clients WHERE profile_id = $1 AND client_id = $2', [profileId, clientId]);
+
+export async function insertMigrationClientRow(profileId, { clientId, name, enabled, settings, secrets, by }) {
+  return (await one(`
+    INSERT INTO migration_clients (profile_id, client_id, name, enabled, settings, secrets, created_by, updated_by)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $7) RETURNING id
+  `, [profileId, clientId, name, enabled ? 1 : 0, settings, secrets, by])).id;
+}
+
+export async function updateMigrationClientRow(profileId, id, { clientId, name, enabled, settings, secrets, by }) {
+  await exec(`
+    UPDATE migration_clients SET client_id = $1, name = $2, enabled = $3, settings = $4, secrets = $5, updated_by = $6, updated_at = ${NOW}
+    WHERE id = $7 AND profile_id = $8
+  `, [clientId, name, enabled ? 1 : 0, settings, secrets, by, id, profileId]);
+}
+
+export const deleteMigrationClientRow = (profileId, id) =>
+  exec('DELETE FROM migration_clients WHERE id = $1 AND profile_id = $2', [id, profileId]);
+
+// Records a new request. Returns false when this client already sent that request id (a replay).
+export async function startMigrationEvent({ clientPk, jti, legacyId, username, ip }) {
+  const { rowCount } = await exec(`
+    INSERT INTO migration_events (client_pk, jti, legacy_id, username, status, ip) VALUES ($1, $2, $3, $4, 'started', $5)
+    ON CONFLICT (client_pk, jti) DO NOTHING
+  `, [clientPk, jti, legacyId, username, ip]);
+  return rowCount === 1;
+}
+
+export async function finishMigrationEvent({ clientPk, jti, status, keycloakId = null, detail = null }) {
+  await exec(`
+    UPDATE migration_events SET status = $1, keycloak_id = COALESCE($2, keycloak_id), detail = $3, updated_at = ${NOW}
+    WHERE client_pk = $4 AND jti = $5
+  `, [status, keycloakId, detail, clientPk, jti]);
+}
+
+export const listMigrationEvents = (clientPk, limit = 50) =>
+  all('SELECT * FROM migration_events WHERE client_pk = $1 ORDER BY id DESC LIMIT $2', [clientPk, limit]);
+
+export const countMigrationEvents = async (clientPk) => Object.fromEntries((await all(
+  'SELECT status, COUNT(*)::int AS n FROM migration_events WHERE client_pk = $1 GROUP BY status', [clientPk],
+)).map((r) => [r.status, r.n]));
+
 // ---------- admin console accounts ----------
 
 export const ADMIN_USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,39}$/;

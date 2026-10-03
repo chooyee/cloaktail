@@ -99,11 +99,18 @@
   <header class="sticky top-0 z-10 border-b bg-background/90 backdrop-blur">
     <div class="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4">
 <% const adminArea = typeof admin !== 'undefined' && admin && currentPath.startsWith('/admin'); %>
+<%# bare: pages for other applications' users (user migration), without the portal's navigation. %>
+<% const bareLayout = typeof bare !== 'undefined' && bare; %>
+<% if (bareLayout) { %>
+      <span class="flex shrink-0 items-center gap-2 font-semibold"><%- include('logo') %> CloakTail</span>
+<% } else { %>
       <a href="<%= adminArea ? '/admin' : '/' %>" class="flex shrink-0 items-center gap-2 font-semibold">
         <%- include('logo') %>
         <span class="<%= user || adminArea ? 'hidden sm:inline' : '' %>">CloakTail</span>
       </a>
-<% if (adminArea) { %>
+<% } %>
+<% if (bareLayout) { %>
+<% } else if (adminArea) { %>
       <span class="badge shrink-0" data-variant="secondary">Admin</span>
       <nav class="-mx-1 flex min-w-0 items-center gap-1 overflow-x-auto px-1 text-sm" aria-label="Admin">
         <% const adminLinks = admin.mustChangePassword

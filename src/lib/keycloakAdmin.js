@@ -89,7 +89,13 @@ export function createAdminClient(getSettings, secretLabel) {
 
     getUser: (userId) => request('GET', `/users/${id(userId)}`),
 
-    createUser: ({ username, email, firstName, lastName, enabled = true, emailVerified = false, password, temporary, requiredActions }) =>
+    // Exact match on one field, e.g. { username } or { email }; full representations (with attributes).
+    findUsersExact: (query) => request('GET', '/users', { query: { ...query, exact: true, briefRepresentation: false } }),
+
+    // The realm's user profile configuration (declared attributes, unmanaged attribute policy).
+    getUserProfileConfig: () => request('GET', '/users/profile'),
+
+    createUser: ({ username, email, firstName, lastName, enabled = true, emailVerified = false, password, temporary, requiredActions, attributes }) =>
       request('POST', '/users', {
         body: {
           username,
@@ -99,6 +105,7 @@ export function createAdminClient(getSettings, secretLabel) {
           enabled,
           emailVerified,
           requiredActions,
+          attributes,
           credentials: password ? [{ type: 'password', value: password, temporary: Boolean(temporary) }] : undefined,
         },
       }),

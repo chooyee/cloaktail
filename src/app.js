@@ -8,6 +8,7 @@ import { authRouter } from './auth.js';
 import { usersRouter } from './routes/users.js';
 import { rolesRouter } from './routes/roles.js';
 import { registerRouter } from './routes/register.js';
+import { migrateRouter } from './routes/migrate.js';
 import { appsRouter, testAcsRouter } from './routes/apps.js';
 import { testUsersRouter } from './routes/testUsers.js';
 import { toolsRouter, publicToolsRouter } from './routes/tools.js';
@@ -120,6 +121,8 @@ app.use((req, res, next) => {
 app.use(authRouter);
 app.use(testAcsRouter);
 app.use('/register', registerRouter);
+// User migration: legacy applications send their users here to move them into Keycloak.
+app.use('/migrate', migrateRouter);
 
 // Public pages. Signed-out visitors land on the product page; signed-in users get the dashboard.
 const landing = (req, res) => res.render('pages/landing', {

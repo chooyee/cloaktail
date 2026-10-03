@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
-// Just enough JOSE for "Test connection": decode a JWT and verify its signature against a JWKS.
+// Just enough JOSE for "Test connection" (decode a JWT, verify its signature against a JWKS) and for
+// user migration (verify an application's request with its public key or shared secret, sign the result).
 
 const b64url = (s) => Buffer.from(s, 'base64url');
 
@@ -53,13 +54,47 @@ export async function verifyJwtSignature(jwt, jwksUri) {
   let candidates = pick(await loadJwks(jwksUri));
   if (!candidates.length) candidates = pick(await loadJwks(jwksUri, { force: true }));
   if (!candidates.length) throw new Error(`The realm publishes no ${alg} key with id ${kid ?? '(none)'} at ${jwksUri}.`);
-  const [hash, options] = ALGORITHMS[alg];
   for (const jwk of candidates) {
     let key;
     try { key = crypto.createPublicKey({ key: jwk, format: 'jwk' }); } catch { continue; }
-    if (crypto.verify(hash, Buffer.from(jwt.signingInput), { key, ...options }, jwt.signature)) return `${alg}, key ${jwk.kid ?? '(no id)'}`;
+    if (signatureMatches(jwt, key)) return `${alg}, key ${jwk.kid ?? '(no id)'}`;
   }
   throw new Error(`The ${alg} signature does not verify with the realm key ${kid ?? ''}.`.replace(' .', '.'));
+}
+
+const signatureMatches = (jwt, key) => {
+  const [hash, options] = ALGORITHMS[jwt.header.alg];
+  try {
+    return crypto.verify(hash, Buffer.from(jwt.signingInput), { key, ...options }, jwt.signature);
+  } catch {
+    return false; // key type doesn't fit the algorithm
+  }
+};
+
+// Verifies a decoded JWT's asymmetric signature with one public key (a KeyObject). Throws otherwise.
+export function verifyJwtWithPublicKey(jwt, key) {
+  const { alg } = jwt.header;
+  if (!Object.hasOwn(ALGORITHMS, alg)) throw new Error(`Unsupported or unsigned algorithm "${alg}".`);
+  if (!signatureMatches(jwt, key)) throw new Error(`The ${alg} signature does not verify with the configured public key.`);
+}
+
+const hs256 = (signingInput, secret) => crypto.createHmac('sha256', secret).update(signingInput).digest();
+
+// Verifies a decoded JWT's HS256 signature with a shared secret. Only HS256 is accepted, so a token
+// can't pick a weaker algorithm (or "none"). Throws otherwise.
+export function verifyJwtHs256(jwt, secret) {
+  if (jwt.header.alg !== 'HS256') throw new Error(`Expected an HS256 signature, not "${jwt.header.alg}".`);
+  const expected = hs256(jwt.signingInput, secret);
+  if (jwt.signature.length !== expected.length || !crypto.timingSafeEqual(jwt.signature, expected)) {
+    throw new Error('The HS256 signature does not verify with the client secret.');
+  }
+}
+
+// Signs claims as a compact HS256 JWT.
+export function signJwtHs256(payload, secret) {
+  const part = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url');
+  const signingInput = `${part({ alg: 'HS256', typ: 'JWT' })}.${part(payload)}`;
+  return `${signingInput}.${hs256(signingInput, secret).toString('base64url')}`;
 }
 
 // OIDC at_hash / c_hash: the left half of the token's hash with the ID token's algorithm, base64url.

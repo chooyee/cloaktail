@@ -1,0 +1,56 @@
+<%- include('../../partials/header') %>
+<a href="/admin/keycloak/profiles/<%= profile.id %>" class="text-sm text-muted-foreground hover:underline">← <%= profile.name %></a>
+<div class="mt-2 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-semibold">User migration</h1>
+    <p class="mt-1 max-w-3xl text-muted-foreground">
+      Applications that still sign their users in themselves can send each user to CloakTail once, to choose a new password.
+      CloakTail creates them in this profile’s sandbox realm <code><%= profile.settings.sandboxRealm %></code>
+      with the sandbox service account, then sends them back with a signed result.
+    </p>
+  </div>
+  <a href="<%= migrationPath %>/new" class="btn">New migration client</a>
+</div>
+
+<div class="mt-6 grid gap-6">
+  <%- include('../../fragments/form-status', { error: null, message }) %>
+
+  <% if (!profile.domains.length) { %>
+    <div class="alert" role="status">
+      <h2>Not reachable yet</h2>
+      <section>This profile serves no domain, so applications can’t send users to it. Add a domain to the profile first.</section>
+    </div>
+  <% } %>
+
+  <% if (!clients.length) { %>
+    <div class="card">
+      <section class="py-6 text-center">
+        <p class="font-medium">No migration clients yet</p>
+        <p class="mt-1 text-sm text-muted-foreground">Add one for each application whose users you’re moving to Keycloak.</p>
+        <a href="<%= migrationPath %>/new" class="btn mt-4">New migration client</a>
+      </section>
+    </div>
+  <% } else { %>
+    <div class="card">
+      <section class="overflow-x-auto">
+        <table class="table">
+          <thead><tr><th>Application</th><th>Client ID</th><th>Status</th><th>Migrated</th><th>Conflicts</th><th>OTP</th><th></th></tr></thead>
+          <tbody>
+            <% for (const c of clients) { %>
+              <tr>
+                <td class="font-medium"><%= c.name %></td>
+                <td class="font-mono text-xs"><%= c.clientId %></td>
+                <td><span class="badge" data-variant="<%= c.enabled ? 'default' : 'secondary' %>"><%= c.enabled ? 'Enabled' : 'Disabled' %></span></td>
+                <td><%= c.migrated %></td>
+                <td><% if (c.conflicts) { %><span class="badge" data-variant="destructive"><%= c.conflicts %></span><% } else { %>0<% } %></td>
+                <td><%= c.settings.requireOtp ? 'Required' : 'Optional' %></td>
+                <td class="text-right"><a href="<%= migrationPath %>/<%= c.id %>" class="btn" data-variant="outline" data-size="sm">Open</a></td>
+              </tr>
+            <% } %>
+          </tbody>
+        </table>
+      </section>
+    </div>
+  <% } %>
+</div>
+<%- include('../../partials/footer') %>

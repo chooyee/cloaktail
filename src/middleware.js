@@ -94,13 +94,14 @@ function csrfFailureReason(req, expected) {
 
 // Synchronizer-token CSRF protection for every state-changing request from our own pages.
 // SAML endpoints are excluded: they are cross-site POSTs from Keycloak protected by XML signatures.
+// So is /migrate/start: a cross-site POST from an application, protected by the request's signature.
 export function csrf(req, res, next) {
   if (req.session && (req.user || req.session.admin) && !req.session.csrfToken) {
     req.session.csrfToken = crypto.randomBytes(32).toString('hex');
   }
   res.locals.csrfToken = req.session?.csrfToken || '';
 
-  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || req.path.startsWith('/saml/')) return next();
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || req.path.startsWith('/saml/') || req.path === '/migrate/start') return next();
 
   const sent = req.get('X-CSRF-Token') || req.body?._csrf || '';
   const expected = req.session?.csrfToken || '';
