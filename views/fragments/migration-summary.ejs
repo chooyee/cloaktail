@@ -1,0 +1,33 @@
+<%# "User migration" section of an application page. Expects `app`, `migration` (or null), `migrationCounts`, `canEdit`. %>
+<% const migrated = migrationCounts.migratedUsers || 0; %>
+<section id="migration" class="page-section">
+  <div class="section-intro">
+    <h2>User migration</h2>
+    <p>Move your app’s existing users into Keycloak: after they sign in the old way, your app sends them here once to choose a new password.</p>
+  </div>
+  <div class="section-body">
+    <div class="card flex-row flex-wrap items-center justify-between gap-4 p-5">
+      <div class="grid gap-1 text-sm">
+        <% if (!migration) { %>
+          <p class="font-medium">Not set up</p>
+          <p class="text-muted-foreground">See how the redirect works, then turn it on.</p>
+        <% } else { %>
+          <p class="flex items-center gap-2 font-medium">
+            <span class="badge" data-tone="<%= migration.enabled ? 'success' : 'neutral' %>"><%= migration.enabled ? 'On' : 'Off' %></span>
+            <%= migrated %> user<%= migrated === 1 ? '' : 's' %> migrated
+          </p>
+          <% if (migrationCounts.conflict || migrationCounts.rejected) { %>
+            <p class="text-muted-foreground">
+              <%= [migrationCounts.conflict && `${migrationCounts.conflict} conflict${migrationCounts.conflict === 1 ? '' : 's'}`,
+                   migrationCounts.rejected && `${migrationCounts.rejected} rejected request${migrationCounts.rejected === 1 ? '' : 's'}`].filter(Boolean).join(' · ') %>
+            </p>
+          <% } %>
+        <% } %>
+      </div>
+      <a href="/apps/<%= app.id %>/migration" class="btn" data-variant="outline">
+        <%= migration ? 'Open' : canEdit ? 'Set up user migration' : 'How it works' %><%- icon('arrowRight') %>
+      </a>
+    </div>
+  </div>
+</section>
+

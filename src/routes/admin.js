@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import express from 'express';
 import {
   ADMIN_USERNAME_RE, getAdminAccount, listAdminAccounts, createAdminAccount, createFirstAdminAccount,
-  deleteAdminAccount, setAdminPassword, recordAdminLogin, recordAdminLoginFailure, listMigrationEvents, countMigrationEvents,
+  deleteAdminAccount, setAdminPassword, recordAdminLogin, recordAdminLoginFailure,
 } from '../db.js';
 import { setupRequired, ensureSetupToken, setupTokenMatches, finishSetup } from '../adminSetup.js';
 import { hashPassword, verifyPassword, passwordProblem, DUMMY_HASH } from '../lib/password.js';
@@ -14,10 +14,6 @@ import {
 import {
   KEY_SIZES, VALIDITY_YEARS, getSpKeysView, listSpKeysViews, generateSpKey, importSpKey, activatePendingSpKey, discardPendingSpKey,
 } from '../spKeys.js';
-import {
-  REQUEST_KEYS, MIGRATION_ATTRIBUTES, listMigrationClients, getMigrationClient, migrationInputFromForm, createMigrationClient,
-  updateMigrationClient, regenerateMigrationClientSecret, deleteMigrationClient, checkMigrationClient, migrationSample,
-} from '../migrationClients.js';
 import { config } from '../config.js';
 import { requireAdmin, redirect, sendError } from '../middleware.js';
 
@@ -198,7 +194,6 @@ async function renderProfile(res, { status = 200, profile = null, values, errors
     // Shown in the delete confirmation: what deleting removes from the database.
     data: profile ? await countProfileData(profile.id) : null,
     spKeys: profile ? await getSpKeysView(profile.id) : null,
-    migrationClients: profile ? (await listMigrationClients(profile.id)).length : 0,
     title: profile ? `Keycloak profile: ${profile.name}` : 'New Keycloak profile',
     sections: PROFILE_SECTIONS,
     fields: PROFILE_FIELDS,
@@ -424,125 +419,6 @@ adminRouter.post('/keycloak/profiles/:id/signing/discard', async (req, res) => {
   if (!profile) return;
   await discardPendingSpKey(profile, req.admin.username);
   redirect(req, res, `${signingPath(profile)}?discarded`);
-});
-
-// ---------- user migration clients (per profile) ----------
-
-const migrationPath = (profile, client = null) => `/admin/keycloak/profiles/${profile.id}/migration${client ? `/${client.id}` : ''}`;
-
-adminRouter.get('/keycloak/profiles/:id/migration', async (req, res) => {
-  const profile = await loadProfile(req, res);
-  if (!profile) return;
-  res.render('pages/admin/migration-clients', {
-    title: `User migration: ${profile.name}`,
-    profile,
-    clients: await listMigrationClients(profile.id),
-    migrationPath: migrationPath(profile),
-    message: 'deleted' in req.query ? 'Migration client deleted.' : null,
-  });
-});
-
-// The client's page: its settings form and, once it exists, how to integrate and its recent requests.
-async function renderMigrationClient(res, profile, { status = 200, client = null, values, errors = {}, error = null, message = null, newSecret = null }) {
-  const s = client?.settings;
-  res.status(status).render('pages/admin/migration-client', {
-    title: client ? `Migration client: ${client.name}` : 'New migration client',
-    profile,
-    client,
-    REQUEST_KEYS,
-    MIGRATION_ATTRIBUTES,
-    basePath: migrationPath(profile),
-    action: client ? migrationPath(profile, client) : migrationPath(profile),
-    values: values ?? (client
-      ? { name: client.name, clientId: client.clientId, enabled: client.enabled, returnUrls: s.returnUrls.join('\n'),
-        requestKey: s.requestKey, publicKey: s.publicKey, jwksUrl: s.jwksUrl, requireOtp: s.requireOtp }
-      : { enabled: true, requestKey: 'secret', requireOtp: true, returnUrls: '' }),
-    errors,
-    error,
-    message,
-    newSecret,
-    // Where applications send users: this profile's domains (the first one in the sample code).
-    startUrls: profile.domains.map((d) => `${d}/migrate/start`),
-    sample: client ? migrationSample(client, profile.domains[0] || 'https://portal.example.com') : null,
-    events: client ? await listMigrationEvents(client.id) : [],
-    counts: client ? await countMigrationEvents(client.id) : {},
-  });
-}
-
-// Form values to show again after a validation error.
-const migrationFormValues = (input) => ({ ...input, returnUrls: input.returnUrls.join('\n') });
-
-async function loadMigrationClient(req, res, profile) {
-  const client = await getMigrationClient(profile.id, Number(req.params.mid));
-  if (!client) sendError(req, res, 404, 'Migration client not found.');
-  return client;
-}
-
-adminRouter.get('/keycloak/profiles/:id/migration/new', async (req, res) => {
-  const profile = await loadProfile(req, res);
-  if (profile) await renderMigrationClient(res, profile, {});
-});
-
-adminRouter.post('/keycloak/profiles/:id/migration', async (req, res) => {
-  const profile = await loadProfile(req, res);
-  if (!profile) return;
-  const input = migrationInputFromForm(req.body);
-  const { errors, id, clientSecret } = await createMigrationClient(profile.id, input, req.admin.username);
-  if (Object.keys(errors).length) {
-    return renderMigrationClient(res, profile, { status: 422, values: migrationFormValues(input), errors, error: 'Fix the highlighted fields. Nothing was saved.' });
-  }
-  // Rendered, not redirected: the secret is shown this once.
-  await renderMigrationClient(res, profile, {
-    client: await getMigrationClient(profile.id, id),
-    message: 'Migration client created.',
-    newSecret: clientSecret,
-  });
-});
-
-adminRouter.get('/keycloak/profiles/:id/migration/:mid', async (req, res) => {
-  const profile = await loadProfile(req, res);
-  const client = profile && await loadMigrationClient(req, res, profile);
-  if (client) await renderMigrationClient(res, profile, { client });
-});
-
-adminRouter.post('/keycloak/profiles/:id/migration/:mid', async (req, res) => {
-  const profile = await loadProfile(req, res);
-  const client = profile && await loadMigrationClient(req, res, profile);
-  if (!client) return;
-  const input = migrationInputFromForm(req.body);
-  const { errors } = await updateMigrationClient(client, input, req.admin.username);
-  if (Object.keys(errors).length) {
-    return renderMigrationClient(res, profile, { status: 422, client, values: migrationFormValues(input), errors, error: 'Fix the highlighted fields. Nothing was saved.' });
-  }
-  await renderMigrationClient(res, profile, { client: await getMigrationClient(profile.id, client.id), message: 'Saved. It applies to new requests at once.' });
-});
-
-adminRouter.post('/keycloak/profiles/:id/migration/:mid/secret', async (req, res) => {
-  const profile = await loadProfile(req, res);
-  const client = profile && await loadMigrationClient(req, res, profile);
-  if (!client) return;
-  const newSecret = await regenerateMigrationClientSecret(client, req.admin.username);
-  await renderMigrationClient(res, profile, {
-    client: await getMigrationClient(profile.id, client.id),
-    message: 'New client secret created. The old one stopped working: update the application now.',
-    newSecret,
-  });
-});
-
-adminRouter.post('/keycloak/profiles/:id/migration/:mid/check', async (req, res) => {
-  const profile = await loadProfile(req, res);
-  const client = profile && await loadMigrationClient(req, res, profile);
-  if (!client) return;
-  const checks = await checkMigrationClient(profile, client);
-  res.render('fragments/admin-checks', { checks, checkedAt: new Date().toLocaleTimeString('en-GB') });
-});
-
-adminRouter.post('/keycloak/profiles/:id/migration/:mid/delete', async (req, res) => {
-  const profile = await loadProfile(req, res);
-  const client = profile && await loadMigrationClient(req, res, profile);
-  if (!client) return;
-  await deleteMigrationClient(client, req.admin.username);
-  redirect(req, res, `${migrationPath(profile)}?deleted`);
 });
 
 // ---------- administrators ----------

@@ -171,19 +171,6 @@
         </footer>
       </div>
 
-      <div class="card">
-        <header>
-          <h2>User migration</h2>
-          <p>Let applications send their users here once, to choose a new password and move into the sandbox realm.</p>
-        </header>
-        <section class="text-sm text-muted-foreground">
-          <%= migrationClients %> migration client<%= migrationClients === 1 ? '' : 's' %>.
-        </section>
-        <footer class="flex justify-end">
-          <a href="/admin/keycloak/profiles/<%= profile.id %>/migration" class="btn" data-variant="outline">Manage</a>
-        </footer>
-      </div>
-
       <form class="card" method="post" action="/admin/keycloak/profiles/<%= profile.id %>/export">
         <input type="hidden" name="_csrf" value="<%= csrfToken %>">
         <header>

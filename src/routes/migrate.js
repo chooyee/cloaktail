@@ -1,16 +1,13 @@
 import crypto from 'node:crypto';
 import express from 'express';
-import { currentProfileId } from '../config.js';
 import { sandboxAdmin, KeycloakError } from '../lib/keycloakAdmin.js';
 import { decodeJwt, verifyJwtSignature, verifyJwtWithPublicKey, verifyJwtHs256, signJwtHs256 } from '../lib/jwt.js';
-import {
-  MIGRATION_ATTRIBUTES, findMigrationClient, getMigrationClient, isSameMigratedUser, newUserRequiredActions,
-} from '../migrationClients.js';
-import { startMigrationEvent, finishMigrationEvent } from '../db.js';
+import { MIGRATION_ATTRIBUTES, getAppMigration, isSameMigratedUser, newUserRequiredActions } from '../lib/userMigration.js';
+import { getApp, getAppByClientId, startMigrationEvent, finishMigrationEvent, recordRejectedMigration } from '../db.js';
 
-// User migration (see migrationClients.js and the README). The flow:
+// User migration of developer applications (see lib/userMigration.js and the README). The flow:
 //   1. The application sends the user to /migrate/start with a signed request (GET ?request= or a
-//      form POST), saying who they are and where to send them back.
+//      form POST), saying who they are and where to send them back. Its iss is the app's client ID.
 //   2. CloakTail checks it, keeps it in the session and shows /migrate: the profile, read-only, and
 //      a new password.
 //   3. On submit it creates the user in the profile's sandbox realm, then sends the user back to the
@@ -60,9 +57,11 @@ const renderMessage = (res, status, heading, message, { appName = null } = {}) =
   });
 
 // A request that can't be trusted (bad signature, unknown client...) never leads anywhere: the
-// return URL in it is unverified. The details go to the server log, not the page.
-function rejectRequest(req, res, reason) {
+// return URL in it is unverified. The details go to the server log, not the page, and to the
+// application's request history when the request names one, so its developer can see why.
+async function rejectRequest(req, res, reason, client = null) {
   console.warn(`[migrate] rejected request from ${req.ip}: ${reason}`);
+  if (client) await recordRejectedMigration({ appId: client.id, detail: reason, ip: req.ip });
   renderMessage(res, 400, 'This link can’t be used',
     'The application sent an invalid or expired request. Go back to the application and sign in again. If this keeps happening, contact its support.');
 }
@@ -85,7 +84,7 @@ function sendBack(req, res, client, migration, { status, keycloakId = null, deta
     ...(keycloakId ? { keycloak_id: keycloakId } : {}),
     ...(migration.state ? { state: migration.state } : {}),
     ...(detail ? { error_description: detail } : {}),
-  }, client.secrets.clientSecret);
+  }, client.secret);
   const url = new URL(migration.returnUrl);
   url.searchParams.set('result', result);
   delete req.session.migration;
@@ -94,17 +93,38 @@ function sendBack(req, res, client, migration, { status, keycloakId = null, deta
 
 async function finish(req, res, client, migration, outcome) {
   await finishMigrationEvent({
-    clientPk: client.id, jti: migration.jti, status: outcome.status, keycloakId: outcome.keycloakId, detail: outcome.log ?? outcome.detail,
+    appId: client.id, jti: migration.jti, status: outcome.status, keycloakId: outcome.keycloakId, detail: outcome.log ?? outcome.detail,
   });
   console.log(`[migrate] ${client.clientId}: ${migration.username} (legacy ${migration.legacyId}) ${outcome.status}`);
   sendBack(req, res, client, migration, outcome);
 }
 
+// ---------- the application ----------
+
+// A developer application with user migration set up, as the flow uses it; null otherwise.
+async function clientFor(app) {
+  const setup = app && await getAppMigration(app.id);
+  if (!setup) return null;
+  return {
+    id: app.id,
+    app,
+    clientId: app.client_id,
+    name: app.name,
+    enabled: setup.enabled,
+    settings: setup.settings,
+    secret: setup.secret,
+    secretUnreadable: setup.secretUnreadable,
+  };
+}
+
+// The application a request names: its iss is the app's client ID, in this domain's profile.
+const findClient = async (clientId) => (typeof clientId === 'string' && clientId ? clientFor(await getAppByClientId(clientId)) : null);
+
 // ---------- 1. the application's request ----------
 
 async function verifySignature(jwt, client) {
   const { requestKey, publicKey, jwksUrl } = client.settings;
-  if (requestKey === 'secret') return verifyJwtHs256(jwt, client.secrets.clientSecret);
+  if (requestKey === 'secret') return verifyJwtHs256(jwt, client.secret);
   if (requestKey === 'publicKey') return verifyJwtWithPublicKey(jwt, crypto.createPublicKey(publicKey));
   return verifyJwtSignature(jwt, jwksUrl);
 }
@@ -112,25 +132,25 @@ async function verifySignature(jwt, client) {
 const optionalString = (value, max) => (value === undefined || value === null || value === '' ? ''
   : typeof value === 'string' && value.length <= max ? value : null);
 
-// Returns { migration, client } or { error } (for the log).
+// Returns { migration, client }, or { error } (for the log) with the client when the request names one.
 async function readRequest(req, token) {
   const jwt = decodeJwt(token);
   if (!jwt) return { error: 'not a signed JWT' };
   const claims = jwt.payload;
-  const client = await findMigrationClient(currentProfileId(), claims.iss);
-  if (!client) return { error: `unknown client ${JSON.stringify(claims.iss)}` };
-  if (!client.enabled) return { error: `client ${client.clientId} is disabled` };
-  if (client.secretsUnreadable) return { error: `the secrets of client ${client.clientId} can't be decrypted (SETTINGS_KEY changed?)` };
+  const client = await findClient(claims.iss);
+  if (!client) return { error: `no application with user migration has client ID ${JSON.stringify(claims.iss)}` };
+  const fail = (why) => ({ error: `${client.clientId}: ${why}`, client });
+  if (!client.enabled) return fail('user migration is turned off for this application');
+  if (client.secretUnreadable) return fail("the migration secret can't be decrypted (SETTINGS_KEY changed?); generate a new one");
   try {
     await verifySignature(jwt, client);
   } catch (err) {
-    return { error: `${client.clientId}: ${err.message}` };
+    return fail(err.message);
   }
 
-  // Signed by the client; now check it is meant for us, fresh and complete.
+  // Signed by the application; now check it is meant for us, fresh and complete.
   const audience = `${req.siteUrl}/migrate`;
   const now = Math.floor(Date.now() / 1000);
-  const fail = (why) => ({ error: `${client.clientId}: ${why}` });
   if (![].concat(claims.aud).includes(audience)) return fail(`aud must be ${audience}`);
   if (!Number.isInteger(claims.exp) || !Number.isInteger(claims.iat)) return fail('exp and iat are required');
   if (claims.exp < now - CLOCK_SKEW_S) return fail('expired');
@@ -151,7 +171,7 @@ async function readRequest(req, token) {
   return {
     client,
     migration: {
-      clientPk: client.id,
+      appId: client.id,
       jti: claims.jti,
       legacyId: claims.sub,
       username: claims.preferred_username.toLowerCase(),
@@ -169,11 +189,11 @@ async function start(req, res) {
   if (startLimited(req.ip)) return renderMessage(res, 429, 'Too many attempts', 'Too many requests from your network. Try again in 15 minutes.');
   const token = req.method === 'POST' ? req.body.request : req.query.request;
   const { error, client, migration } = await readRequest(req, typeof token === 'string' ? token : '');
-  if (error) return rejectRequest(req, res, error);
+  if (error) return rejectRequest(req, res, error, client);
 
   // Each request id only once, so a request copied from a log or history can't be replayed.
-  if (!(await startMigrationEvent({ clientPk: client.id, jti: migration.jti, legacyId: migration.legacyId, username: migration.username, ip: req.ip }))) {
-    return rejectRequest(req, res, `${client.clientId}: request ${migration.jti} was already used`);
+  if (!(await startMigrationEvent({ appId: client.id, jti: migration.jti, legacyId: migration.legacyId, username: migration.username, ip: req.ip }))) {
+    return rejectRequest(req, res, `${client.clientId}: request id (jti) ${migration.jti} was already used`, client);
   }
 
   // Someone with this username already? If it is this user, migrated before, there is nothing to do.
@@ -182,12 +202,12 @@ async function start(req, res) {
     [existing] = await sandboxAdmin.findUsersExact({ username: migration.username });
   } catch (err) {
     console.error(`[migrate] ${client.clientId}: looking up ${migration.username} failed:`, err.message);
-    await finishMigrationEvent({ clientPk: client.id, jti: migration.jti, status: 'error', detail: err.message });
+    await finishMigrationEvent({ appId: client.id, jti: migration.jti, status: 'error', detail: err.message });
     return renderMessage(res, 503, 'Try again later', 'Your account can’t be moved right now. Go back to the application and try again in a few minutes.',
       { appName: client.name });
   }
   if (existing) {
-    return isSameMigratedUser(existing, client, migration.legacyId)
+    return isSameMigratedUser(existing, client.app, migration.legacyId)
       ? finish(req, res, client, migration, { status: 'already_migrated', keycloakId: existing.id })
       : finish(req, res, client, migration, {
         status: 'conflict', detail: 'A different account already uses this username.', log: `username taken by ${existing.id}`,
@@ -204,7 +224,7 @@ migrateRouter.post('/start', start);
 
 // ---------- 2. the page ----------
 
-// The migration in this session and its client; otherwise renders why not and returns {}.
+// The migration in this session and its application; otherwise renders why not and returns {}.
 async function load(req, res) {
   const migration = req.session.migration;
   if (!migration) {
@@ -212,8 +232,8 @@ async function load(req, res) {
       'This page is opened by an application that is moving your account. Go back to the application and sign in again.');
     return {};
   }
-  const client = await getMigrationClient(currentProfileId(), migration.clientPk);
-  if (!client || !client.enabled || client.secretsUnreadable) {
+  const client = await clientFor(await getApp(migration.appId));
+  if (!client || !client.enabled || client.secretUnreadable) {
     delete req.session.migration;
     renderMessage(res, 503, 'Account moves are paused', 'Moving accounts for this application isn’t available right now. Try again later.');
     return {};
@@ -291,10 +311,10 @@ migrateRouter.post('/', async (req, res) => {
 });
 
 // Username or email taken. It may be this same user (a double submit, or a lost response), who is
-// then already migrated; a different account is a conflict for an administrator to resolve.
+// then already migrated; a different account is a conflict for a person to resolve.
 async function conflict(req, res, client, migration, message) {
   const [byUsername] = await sandboxAdmin.findUsersExact({ username: migration.username });
-  if (byUsername && isSameMigratedUser(byUsername, client, migration.legacyId)) {
+  if (byUsername && isSameMigratedUser(byUsername, client.app, migration.legacyId)) {
     return finish(req, res, client, migration, { status: 'already_migrated', keycloakId: byUsername.id });
   }
   return finish(req, res, client, migration, {

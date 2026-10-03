@@ -1,6 +1,7 @@
 import { deriveKeycloakConfig } from '../config.js';
 import { fetchIdpCerts } from './idpCerts.js';
 import { createAdminClient } from './keycloakAdmin.js';
+import { MIGRATION_ATTRIBUTES } from './userMigration.js';
 
 // Connection checks in the admin console: test a Keycloak profile's settings end to end, one
 // connection (section of the profile form) at a time or all of them. They work on any settings,
@@ -82,6 +83,16 @@ const SECTIONS = {
       check(`Sandbox service account "${sandbox.adminClientId}"`, async () => {
         const [count] = await Promise.all([admin.countUsers({}), admin.listClients({ max: 1 })]);
         return `Signed in; can read clients and users (${count} users in the realm).`;
+      }),
+      // Developers' user migration marks each migrated user with these attributes.
+      check('User attributes for user migration', async () => {
+        const profile = await admin.getUserProfileConfig();
+        const declared = new Set((profile.attributes || []).map((a) => a.name));
+        const missing = Object.values(MIGRATION_ATTRIBUTES).filter((n) => !declared.has(n));
+        if (!missing.length) return 'Declared in the user profile.';
+        if (['ENABLED', 'ADMIN_EDIT'].includes(profile.unmanagedAttributePolicy)) return `Kept as unmanaged attributes (${profile.unmanagedAttributePolicy}).`;
+        throw new Error(`Keycloak would drop ${missing.join(', ')}, which user migration sets. In realm "${sandbox.realm}", set `
+          + 'Realm settings → General → Unmanaged attributes to "Admin can edit" or "Enabled". Not needed if no one uses user migration.');
       }),
     ];
   },

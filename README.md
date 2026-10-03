@@ -30,7 +30,7 @@ A self-service portal where developers register, create SAML clients in Keycloak
   The portal adds its own test ACS / redirect URI, on every domain of the profile, to each client, and hides it from the form. The last 10 runs are kept per application.
 - **Test users:** each developer manages a few accounts in the sandbox realm to sign in with during tests.
 - **Portal administration:** user management (in `ep`) and portal roles and permissions, as before.
-- **User migration** at `/migrate`: legacy applications send their users here once to choose a new password and move into Keycloak (see [User migration](#user-migration)).
+- **User migration** for registered applications: an application sends its existing users to `/migrate` once to choose a new password and move into Keycloak (see [User migration](#user-migration)).
 - **Admin console** at `/admin`: configures the Keycloak connection at runtime. Administrators are local accounts stored in the portal database, not Keycloak users, so the console still works when the Keycloak settings are wrong.
 
 Why a separate sandbox realm: a developer controls their client's ACS URL, so a client in `ep` could receive the identity of real `ep` users. The sandbox realm has only test users, and the portal's service account there can't touch production clients.
@@ -56,61 +56,59 @@ Until a profile serves the domain, every page except `/admin` answers 421; until
 
 ## User migration
 
-Moves the users of a legacy application into Keycloak without a bulk import. CloakTail never sees the old password: the application, which already checked it, sends each user once to CloakTail, where they choose a new password.
+Lets a developer move the users of their **registered application** into Keycloak, without a bulk import and without their old passwords. Each application sets it up on its own page: **Applications → (app) → User migration** (`/apps/<id>/migration`). Its owner, or an administrator with `apps.manage_all`, configures it. The page also holds this guide, with the application's values and Node.js / Python code filled in, and the history of requests, including rejected ones and why.
 
-1. The user signs in to the application with their old password. If they aren't migrated yet, the application redirects them to `<domain>/migrate/start?request=<JWT>`, or posts a form with a `request` field (which keeps the token out of logs).
-2. CloakTail checks the request and shows a page with the user's profile, read-only, exactly as the application sent it. The user chooses a new password.
-3. CloakTail creates the user in the profile's **sandbox realm** with the sandbox service account. Nothing else is asked and no email is sent. Emails are not marked verified.
-4. CloakTail sends the user back to the application's return URL with `?result=<JWT>`. The application verifies it, marks the user migrated, and starts its Keycloak sign-in with `login_hint`. With **Require OTP** on, Keycloak makes the user set up an authenticator app there (the `CONFIGURE_TOTP` required action), on Keycloak's own pages, so CloakTail never handles OTP secrets.
+Migrated users are created in the profile's sandbox realm, where the application's client lives, by the sandbox service account. No email is sent, and emails are not marked verified.
 
-**Migration clients** are set up per Keycloak profile in the admin console: **Keycloak profiles → (profile) → User migration**. Each one has:
-- **Client ID:** the `iss` of its requests.
-- **Return URLs:** exact matches only.
-- **Request signature:** one of three methods.
-  - **Client secret (HS256):** the default.
-  - **Public key (PEM):** RS\*, PS\*, ES\* or EdDSA.
-  - **JWKS URL:** follows the application's key rotation.
-- **Require OTP:** on by default.
-- **Client secret:** CloakTail generates it and shows it once. It always signs the results; with the first method it also checks requests. It is stored encrypted, like the profile secrets.
+### Developer guide: redirecting a user
 
-The client's page shows the request and result claims, a ready-to-copy Node.js sample with the client's values, setup checks, and the last 50 requests.
+**0. Set it up.** On the application's User migration page:
+- Enter the **return URLs**, where users come back to.
+- Choose how your requests are signed:
+  - **Migration secret (HS256):** the default.
+  - **Public key (PEM):** RS256, PS256, ES256 or EdDSA.
+  - **JWKS URL:** with `kid`.
+- Leave **Require OTP** on so new users set up an authenticator at their first Keycloak sign-in.
+- Copy the **migration secret** into your app's server configuration (e.g. `CLOAKTAIL_MIGRATION_SECRET`). It always signs the results; with the default method it also signs your requests.
 
-**Request** (JWT signed by the application):
+**1. Check the old password as you do today.** When it's right and the user isn't migrated yet (keep a flag such as `migrated_at`), don't start a session. Send them to CloakTail instead. Users you've already migrated go straight to Keycloak (step 4).
 
-| Claim | |
+**2. Redirect to CloakTail with a signed request**: `https://<portal domain>/migrate/start?request=<JWT>`. Or auto-submit a form `POST` with a `request` field, which keeps the token out of logs and history.
+
+| Claim | Value |
 |---|---|
-| `iss` | Client ID |
-| `aud` | `<domain>/migrate`, for the domain the user is sent to |
-| `iat`, `exp` | Required; at most 10 minutes apart |
-| `jti` | Unique. Each one is accepted once, so a request can't be replayed. |
-| `sub` | The user's id in the application |
-| `preferred_username` | Keycloak username (lowercased) |
-| `email`, `given_name`, `family_name` | Optional |
-| `return_url` | One of the client's return URLs |
-| `state` | Optional, returned unchanged. Use it to tie the result to the user's session. |
+| `iss` | The application's client ID (OIDC client ID or SAML entity ID) |
+| `aud` | `https://<portal domain>/migrate` |
+| `iat`, `exp` | Now, and at most 10 minutes later |
+| `jti` | A new random id for every request. Each is accepted once. |
+| `sub` | The user's id in your application. Kept in Keycloak as the `legacy_id` attribute. |
+| `preferred_username` | Their Keycloak username (stored lowercase) |
+| `email`, `given_name`, `family_name` | Optional. Shown to the user read-only and copied as they are. |
+| `return_url` | One of your return URLs |
+| `state` | A random value kept in the user's session; it comes back in the result |
 
-Requests that fail any check never redirect. The user sees a generic page, and the reason goes to the server log.
+The user sees their profile and chooses a new password; they can also cancel. A request that fails any check never redirects. The user sees "This link can't be used", and the reason appears in the application's request history.
 
-**Result** (HS256 with the client secret, valid for 5 minutes): `iss` (`<domain>/migrate`), `aud` (client ID), `sub`, `preferred_username`, `state`, `request_jti`, `keycloak_id` and `status`:
+**3. Handle the result** at `return_url?result=<JWT>`. Check its HS256 signature with the migration secret, that `aud` is your client ID, that `exp` hasn't passed (results are valid for 5 minutes), and that `state` matches the session. Then act on `status`:
 
-| `status` | Meaning |
-|---|---|
-| `created` | Account created with the new password |
-| `already_migrated` | This user was migrated before by this client. No password is asked. |
-| `conflict` | A different Keycloak account has the username or email. An administrator must resolve it. |
-| `cancelled` | The user went back without choosing a password |
-| `expired` | The user took longer than 30 minutes |
-| `error` | Keycloak rejected the account details (see the client's request history) |
+| `status` | Meaning | Your app |
+|---|---|---|
+| `created` | The Keycloak account exists with the new password | Mark the user migrated, then step 4 |
+| `already_migrated` | You migrated this user before; no password was asked | Same |
+| `conflict` | A different Keycloak account has this username or email | Tell the user; someone must sort it out |
+| `cancelled`, `expired`, `error` | No account was created | Let them in the old way this time; ask again next time |
 
-Each migrated user gets the attributes `legacy_id` (the `sub`), `migrated_from` (client ID) and `migrated_at`. They are how a repeated request is recognised as `already_migrated`.
+The result also carries `sub`, `preferred_username`, `keycloak_id` and `request_jti`.
 
-**Sandbox realm setup:**
-- **Realm settings → General → Unmanaged attributes:** *Admin can edit* or *Enabled*, or declare the three attributes in **Realm settings → User profile**. Otherwise Keycloak drops them. **Run checks** on the client's page tests this.
-- **Authentication → Required actions:** *Configure OTP* enabled (the default), for **Require OTP**.
-- The realm's password policy applies. Its messages are shown on the password field.
-- The sandbox service account already has the `manage-users` role it needs.
+**4. Sign the user in with Keycloak** through the application's usual OIDC or SAML sign-in. With OIDC, pass `login_hint=<preferred_username>`; with SAML, put the username in the AuthnRequest's Subject NameID. With **Require OTP**, Keycloak shows the authenticator setup (the `CONFIGURE_TOTP` required action) on its own pages, so neither the app nor CloakTail handles OTP secrets.
 
-Migration clients are not included in profile exports, imports or **Duplicate**. Deleting a profile deletes its migration clients and their request history; the users stay in Keycloak.
+### Sandbox realm setup (administrators)
+
+- **Realm settings → General → Unmanaged attributes:** set *Admin can edit* or *Enabled*, or declare `legacy_id`, `migrated_from` and `migrated_at` in **Realm settings → User profile**. Otherwise Keycloak drops them, and a returning user gets `conflict` instead of `already_migrated`. The profile's sandbox **Check connection** tests this, and developers see a warning on their migration page.
+- **Authentication → Required actions:** keep *Configure OTP* enabled (the default).
+- The realm's password policy applies; its messages are shown on the password field.
+
+Deleting an application deletes its migration setup and history; migrated users stay in Keycloak.
 
 ## Admin console
 

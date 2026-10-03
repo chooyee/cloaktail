@@ -1,0 +1,298 @@
+<%- include('../../partials/header') %>
+<%
+  const isSet = Boolean(migration);
+  const fieldError = (key) => errors[key];
+  const STATUS_TONES = { created: 'success', already_migrated: 'success', conflict: 'danger', error: 'danger', rejected: 'danger', started: 'info', cancelled: 'neutral', expired: 'neutral' };
+  const label = (status) => status.replace('_', ' ');
+  const startUrl = `${migrateUrl}/start`;
+  const returnUrl = migration?.settings.returnUrls[0] || 'https://myapp.example.com/migrated';
+  const hs = (migration?.settings.requestKey || 'secret') === 'secret';
+%>
+<header class="page-header">
+  <div class="min-w-0">
+    <div class="flex flex-wrap items-center gap-2">
+      <h1 class="page-title">User migration</h1>
+      <% if (!isSet) { %><span class="badge" data-tone="neutral">Not set up</span>
+      <% } else { %><span class="badge" data-tone="<%= migration.enabled ? 'success' : 'neutral' %>"><%= migration.enabled ? 'On' : 'Off' %></span><% } %>
+    </div>
+    <p class="page-description">
+      Move <strong><%= app.name %></strong>’s existing users into Keycloak without a bulk import or their old passwords.
+      After a user signs in to your app the old way, your app sends them to CloakTail once. There they choose a new password, and
+      CloakTail creates them in the <code><%= sandboxRealm %></code> realm, then sends them back to your app.
+    </p>
+  </div>
+  <div class="page-actions">
+    <a href="/apps/<%= app.id %>" class="btn" data-variant="outline">Back to <%= app.name %></a>
+  </div>
+</header>
+
+<% if (message) { %>
+  <div class="alert mt-6" data-tone="success" role="status"><%- icon('check') %><section><%= message %></section></div>
+<% } %>
+<% if (attributesProblem) { %>
+  <div class="alert mt-6" data-tone="warning" role="status"><%- icon('alert') %><h2>The sandbox realm needs a setting</h2><section><%= attributesProblem %></section></div>
+<% } %>
+
+<%# ---------- Setup ---------- %>
+<section id="setup" class="page-section">
+  <div class="section-intro">
+    <h2>Setup</h2>
+    <p>Where users are sent back, how your requests are signed, and whether new users must set up OTP.</p>
+  </div>
+  <div class="section-body">
+    <% if (canEdit) { %>
+      <form id="migration-form" class="card" method="post" action="/apps/<%= app.id %>/migration">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <section class="grid gap-6">
+          <% if (Object.keys(errors).length) { %>
+            <div class="alert" data-variant="destructive" role="alert"><section>Fix the highlighted fields. Nothing was saved.</section></div>
+          <% } %>
+          <% if (migration?.secretUnreadable) { %>
+            <div class="alert" data-variant="destructive" role="alert"><section>The migration secret can’t be read (the server’s encryption key changed). Generate a new one below.</section></div>
+          <% } %>
+
+          <div class="field" data-orientation="horizontal">
+            <input type="checkbox" id="enabled" name="enabled" <%= values.enabled ? 'checked' : '' %>>
+            <label for="enabled" class="text-sm font-normal">Accept migration requests from this application</label>
+          </div>
+
+          <div class="field gap-1.5" <%- fieldError('returnUrls') ? 'data-invalid="true"' : '' %>>
+            <label for="returnUrls">Return URLs</label>
+            <textarea id="returnUrls" name="returnUrls" rows="2" class="font-mono text-xs" spellcheck="false" placeholder="https://myapp.example.com/migrated"
+                      <%- fieldError('returnUrls') ? 'aria-invalid="true"' : '' %>><%= values.returnUrls %></textarea>
+            <% if (fieldError('returnUrls')) { %><p class="text-xs text-destructive"><%= fieldError('returnUrls') %></p><% } %>
+            <p class="text-xs">One per line. Your request’s <code>return_url</code> must be one of these, exactly.</p>
+          </div>
+
+          <div class="field gap-1.5" <%- fieldError('requestKey') ? 'data-invalid="true"' : '' %>>
+            <label for="requestKey">Your requests are signed with</label>
+            <select id="requestKey" name="requestKey" class="h-9">
+              <% for (const [key, text] of Object.entries(REQUEST_KEYS)) { %>
+                <option value="<%= key %>" <%= values.requestKey === key ? 'selected' : '' %>><%= text %></option>
+              <% } %>
+            </select>
+            <p class="text-xs">The migration secret is simplest. With a key pair, only your app can sign requests; results still come back signed with the migration secret.</p>
+          </div>
+          <div class="field gap-1.5" data-key-option="publicKey" <%= values.requestKey === 'publicKey' ? '' : 'hidden' %> <%- fieldError('publicKey') ? 'data-invalid="true"' : '' %>>
+            <label for="publicKey">Public key (PEM)</label>
+            <textarea id="publicKey" name="publicKey" rows="5" class="font-mono text-xs" spellcheck="false" placeholder="-----BEGIN PUBLIC KEY-----"><%= values.publicKey %></textarea>
+            <% if (fieldError('publicKey')) { %><p class="text-xs text-destructive"><%= fieldError('publicKey') %></p><% } %>
+            <p class="text-xs">RSA (2048 bits or more), EC or Ed25519. Sign with RS256, PS256, ES256 or EdDSA.</p>
+          </div>
+          <div class="field gap-1.5" data-key-option="jwks" <%= values.requestKey === 'jwks' ? '' : 'hidden' %> <%- fieldError('jwksUrl') ? 'data-invalid="true"' : '' %>>
+            <label for="jwksUrl">JWKS URL</label>
+            <input id="jwksUrl" name="jwksUrl" type="text" class="h-9 py-0 font-mono text-sm" value="<%= values.jwksUrl %>" spellcheck="false"
+                   placeholder="https://myapp.example.com/.well-known/jwks.json">
+            <% if (fieldError('jwksUrl')) { %><p class="text-xs text-destructive"><%= fieldError('jwksUrl') %></p><% } %>
+            <p class="text-xs">Put the key id in your request’s <code>kid</code> header. A new key id is fetched at once, so you can rotate keys.</p>
+          </div>
+
+          <div class="field" data-orientation="horizontal">
+            <input type="checkbox" id="requireOtp" name="requireOtp" <%= values.requireOtp ? 'checked' : '' %>>
+            <section>
+              <label for="requireOtp" class="text-sm font-normal">Require OTP: users set up an authenticator app at their first Keycloak sign-in</label>
+              <p class="text-xs text-muted-foreground">Keycloak shows the QR code on its own pages, so neither your app nor CloakTail handles OTP secrets.</p>
+            </section>
+          </div>
+        </section>
+        <footer class="flex justify-end">
+          <button type="submit" class="btn"><%= isSet ? 'Save' : 'Set up user migration' %></button>
+        </footer>
+      </form>
+    <% } else if (isSet) { %>
+      <div class="card py-5"><section class="px-5">
+        <dl class="kv">
+          <dt>Status</dt><dd><%= migration.enabled ? 'On' : 'Off' %></dd>
+          <dt>Return URLs</dt><dd class="font-mono text-xs"><%= migration.settings.returnUrls.join(', ') %></dd>
+          <dt>Requests signed with</dt><dd><%= REQUEST_KEYS[migration.settings.requestKey] %></dd>
+          <dt>OTP</dt><dd><%= migration.settings.requireOtp ? 'Required' : 'Optional' %></dd>
+        </dl>
+      </section></div>
+    <% } else { %>
+      <p class="text-sm text-muted-foreground">Not set up. Only the application’s owner can set it up.</p>
+    <% } %>
+  </div>
+</section>
+
+<% if (isSet && canEdit) { %>
+  <%# ---------- Migration secret ---------- %>
+  <section id="secret" class="page-section">
+    <div class="section-intro">
+      <h2>Migration secret</h2>
+      <p>Signs the results CloakTail sends back<%= hs ? ', and your requests' : '' %>. Keep it on your server, for example in <code>CLOAKTAIL_MIGRATION_SECRET</code>.</p>
+    </div>
+    <div class="section-body">
+      <div class="card py-5">
+        <section class="grid gap-4 px-5">
+          <% if (secret) { %>
+            <dl class="grid gap-4">
+              <%- include('../../fragments/copy-row', { label: 'Client ID (your requests’ iss)', value: app.client_id }) %>
+              <div class="grid gap-1">
+                <dt class="text-sm text-muted-foreground">Migration secret</dt>
+                <dd class="flex items-start gap-2">
+                  <details class="min-w-0 flex-1">
+                    <summary class="cursor-pointer rounded bg-muted px-2 py-1 font-mono text-xs">••••••••••••  <span class="font-sans text-muted-foreground">show</span></summary>
+                    <code class="mt-1 block break-all rounded bg-muted px-2 py-1 text-xs"><%= secret %></code>
+                  </details>
+                  <button type="button" class="btn" data-variant="ghost" data-size="xs" data-copy="<%= secret %>">Copy</button>
+                </dd>
+              </div>
+            </dl>
+          <% } %>
+          <form method="post" action="/apps/<%= app.id %>/migration/secret" class="flex justify-end"
+                onsubmit="return confirm('Generate a new migration secret? The current one stops working at once.')">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <button type="submit" class="btn" data-variant="outline"><%- icon('key') %>Generate new secret</button>
+          </form>
+        </section>
+      </div>
+    </div>
+  </section>
+<% } %>
+
+<%# ---------- Developer guide ---------- %>
+<section id="guide" class="page-section">
+  <div class="section-intro">
+    <h2>How to redirect your users</h2>
+    <p>What your application does, step by step. The code below has this application’s values filled in.</p>
+  </div>
+  <div class="section-body gap-8">
+    <ol class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-6 text-sm [&_code]:[overflow-wrap:anywhere]">
+      <li class="flex min-w-0 gap-3">
+        <span class="marker">1</span>
+        <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
+          <p class="font-medium">Check the old password as you do today</p>
+          <p class="text-muted-foreground">
+            Keep your login form. When the password is right and the user isn’t migrated yet (keep a flag such as <code>migrated_at</code> on your side),
+            don’t start a session: send them to CloakTail instead. Users you’ve already migrated go straight to Keycloak (step 4).
+          </p>
+        </div>
+      </li>
+      <li class="flex min-w-0 gap-3">
+        <span class="marker">2</span>
+        <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3">
+          <p class="font-medium">Redirect to CloakTail with a signed request</p>
+          <p class="text-muted-foreground">
+            Build a JWT with the claims below, sign it <%= hs ? 'with HS256 and your migration secret' : 'with your private key' %>, and redirect the browser to
+          </p>
+          <%- include('../../fragments/copy-row', { label: 'Start URL', value: `${startUrl}?request=<JWT>` }) %>
+          <p class="text-muted-foreground">
+            Or, to keep the token out of server logs and browser history, auto-submit a form:
+            <code>&lt;form method="post" action="<%= startUrl %>"&gt;&lt;input type="hidden" name="request" value="…"&gt;&lt;/form&gt;</code>.
+          </p>
+          <div class="card card-table">
+            <section>
+              <table class="table text-sm [&_td]:whitespace-normal [&_td]:align-top">
+                <thead><tr><th>Claim</th><th>Value</th></tr></thead>
+                <tbody>
+                  <tr><td><code>iss</code></td><td><code class="break-all"><%= app.client_id %></code> (this application’s client ID)</td></tr>
+                  <tr><td><code>aud</code></td><td><code><%= migrateUrl %></code></td></tr>
+                  <tr><td><code>iat</code>, <code>exp</code></td><td>Now, and at most 10 minutes later (seconds since 1970)</td></tr>
+                  <tr><td><code>jti</code></td><td>A new random id for every request. CloakTail accepts each one once.</td></tr>
+                  <tr><td><code>sub</code></td><td>The user’s id in your application. Keycloak keeps it as the <code><%= MIGRATION_ATTRIBUTES.legacyId %></code> attribute.</td></tr>
+                  <tr><td><code>preferred_username</code></td><td>Their Keycloak username (stored lowercase)</td></tr>
+                  <tr><td><code>email</code>, <code>given_name</code>, <code>family_name</code></td><td>Optional. Shown to the user read-only and copied to Keycloak as they are.</td></tr>
+                  <tr><td><code>return_url</code></td><td>One of your return URLs: <code class="break-all"><%= returnUrl %></code></td></tr>
+                  <tr><td><code>state</code></td><td>A random value you keep in the user’s session; it comes back in the result.</td></tr>
+                </tbody>
+              </table>
+            </section>
+          </div>
+        </div>
+      </li>
+      <li class="flex min-w-0 gap-3">
+        <span class="marker">3</span>
+        <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3">
+          <p class="font-medium">Handle the result at your return URL</p>
+          <p class="text-muted-foreground">
+            The user chooses a new password on CloakTail (or cancels), then comes back to <code>return_url?result=&lt;JWT&gt;</code>.
+            Check its HS256 signature with your migration secret, that <code>aud</code> is your client ID, that <code>exp</code> hasn’t passed,
+            and that <code>state</code> matches the session. Then act on <code>status</code>:
+          </p>
+          <div class="card card-table">
+            <section>
+              <table class="table text-sm [&_td]:whitespace-normal [&_td]:align-top">
+                <thead><tr><th><code>status</code></th><th>Meaning</th><th>Your app</th></tr></thead>
+                <tbody>
+                  <tr><td><code>created</code></td><td>The Keycloak account exists with the new password.</td><td rowspan="2">Mark the user migrated, then sign them in with Keycloak (step 4).</td></tr>
+                  <tr><td><code>already_migrated</code></td><td>You migrated this user before; no password was asked.</td></tr>
+                  <tr><td><code>conflict</code></td><td>A different Keycloak account has this username or email.</td><td>Tell the user; someone must sort it out.</td></tr>
+                  <tr><td><code>cancelled</code>, <code>expired</code>, <code>error</code></td><td>No account was created.</td><td>Let them in the old way this time, and ask again next time.</td></tr>
+                </tbody>
+              </table>
+            </section>
+          </div>
+          <p class="text-muted-foreground">The result also has <code>sub</code> (your user id), <code>preferred_username</code>, <code>keycloak_id</code> and <code>request_jti</code>. It is valid for 5 minutes.</p>
+        </div>
+      </li>
+      <li class="flex min-w-0 gap-3">
+        <span class="marker">4</span>
+        <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
+          <p class="font-medium">Sign the user in with Keycloak</p>
+          <p class="text-muted-foreground">
+            Start your normal <%= app.protocol === 'oidc' ? 'OpenID Connect' : 'SAML' %> sign-in (set up on the <a href="/apps/<%= app.id %>" class="underline underline-offset-4">application page</a>)
+            <%- app.protocol === 'oidc' ? 'with <code>login_hint=&lt;preferred_username&gt;</code>, so the username is filled in' : 'with the username as the AuthnRequest’s Subject NameID, so Keycloak fills it in' %>.
+            The user types their new password<%= migration?.settings.requireOtp ?? true ? ' and, the first time, sets up an authenticator app' : '' %>.
+            From now on they only sign in with Keycloak.
+          </p>
+        </div>
+      </li>
+    </ol>
+
+    <%- include('../../fragments/code-samples', { id: 'migration-example', samples }) %>
+
+    <div class="alert" data-tone="info" role="status">
+      <%- icon('info') %>
+      <h2>Testing it</h2>
+      <section>
+        Sign in to your app as a user who isn’t migrated yet and follow the redirect. If CloakTail turns a request down, the user only sees
+        “This link can’t be used”; the reason is listed under Recent requests below. A migrated user can then sign in with Keycloak,
+        including with this application’s <strong>Run test login</strong>.
+      </section>
+    </div>
+  </div>
+</section>
+
+<%# ---------- History ---------- %>
+<% if (isSet) { %>
+  <section id="history" class="page-section">
+    <div class="section-intro">
+      <h2>Recent requests</h2>
+      <p><% const totals = Object.entries(counts).filter(([k]) => k !== 'migratedUsers'); %>
+        <%= counts.migratedUsers %> user<%= counts.migratedUsers === 1 ? '' : 's' %> migrated.
+        Requests: <%= totals.length ? totals.map(([k, n]) => `${n} ${label(k)}`).join(' · ') : 'none yet' %>.</p>
+    </div>
+    <div class="section-body">
+      <% if (events.length) { %>
+        <div class="card card-table">
+          <section>
+            <table class="table text-sm [&_td]:whitespace-normal [&_td]:align-top">
+              <thead><tr><th>When (UTC)</th><th>Username</th><th>Your user id</th><th>Status</th><th>Detail</th></tr></thead>
+              <tbody>
+                <% for (const e of events) { %>
+                  <tr>
+                    <td class="whitespace-nowrap"><%= e.updated_at %></td>
+                    <td class="break-all"><%= e.username || '' %></td>
+                    <td class="break-all font-mono text-xs"><%= e.legacy_id || '' %></td>
+                    <td><span class="badge" data-tone="<%= STATUS_TONES[e.status] || 'neutral' %>"><%= label(e.status) %></span></td>
+                    <td class="max-w-sm break-words text-xs text-muted-foreground"><%= e.detail || '' %></td>
+                  </tr>
+                <% } %>
+              </tbody>
+            </table>
+          </section>
+        </div>
+      <% } else { %>
+        <p class="text-sm text-muted-foreground">Requests from your application show here, including ones CloakTail turned down and why.</p>
+      <% } %>
+    </div>
+  </section>
+<% } %>
+
+<script>
+  // Show only the input of the chosen signature method.
+  document.getElementById('requestKey')?.addEventListener('change', (e) => {
+    document.querySelectorAll('[data-key-option]').forEach((el) => { el.hidden = el.dataset.keyOption !== e.target.value; });
+  });
+</script>
+<%- include('../../partials/footer') %>

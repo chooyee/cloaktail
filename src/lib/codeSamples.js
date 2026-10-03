@@ -345,3 +345,186 @@ public class SecurityConfig {
     ] },
   ];
 }
+
+// ---------- user migration (the application's side of /migrate) ----------
+
+// migrateUrl: <domain>/migrate (the request's aud; /start is where users are sent).
+// requestKey: how requests are signed ('secret' = HS256 with the migration secret; otherwise RS256
+// with the application's own private key). Results are always HS256 with the migration secret.
+export function migrationSamples({ clientId, migrateUrl, returnUrl, requestKey, requireOtp }) {
+  const hs = requestKey === 'secret';
+  const returnPath = pathOf(returnUrl, '/migrated');
+  const kid = requestKey === 'jwks' ? ", kid: 'my-key-1'" : '';
+  const otpNote = requireOtp ? ' Keycloak then asks them to set up an authenticator app.' : '';
+
+  const node = `import crypto from 'node:crypto';
+
+const MIGRATE_URL = '${migrateUrl}';
+const CLIENT_ID = '${clientId}';
+const RETURN_URL = '${returnUrl}';
+const MIGRATION_SECRET = process.env.CLOAKTAIL_MIGRATION_SECRET; // from the migration page
+${hs ? '' : `const PRIVATE_KEY = crypto.createPrivateKey(process.env.MIGRATION_PRIVATE_KEY); // pairs with the ${requestKey === 'jwks' ? 'key in your JWKS' : 'public key you registered'}\n`}
+const b64 = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url');
+const hmac = (input) => crypto.createHmac('sha256', MIGRATION_SECRET).update(input).digest();
+
+function signRequest(claims) {
+  const input = \`\${b64({ alg: '${hs ? 'HS256' : 'RS256'}', typ: 'JWT'${hs ? '' : kid} })}.\${b64(claims)}\`;
+  const signature = ${hs ? 'hmac(input)' : "crypto.sign('sha256', Buffer.from(input), PRIVATE_KEY)"};
+  return \`\${input}.\${signature.toString('base64url')}\`;
+}
+
+// Checks a result from CloakTail; returns its claims, or null.
+function verifyResult(token) {
+  const [header, payload, signature] = String(token).split('.');
+  if (!signature) return null;
+  const expected = hmac(\`\${header}.\${payload}\`);
+  const given = Buffer.from(signature, 'base64url');
+  if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) return null;
+  if (JSON.parse(Buffer.from(header, 'base64url')).alg !== 'HS256') return null;
+  const claims = JSON.parse(Buffer.from(payload, 'base64url'));
+  if (claims.aud !== CLIENT_ID || claims.exp < Date.now() / 1000) return null;
+  return claims;
+}
+
+// Step 1: your existing login. Once the old password checks out, a user who isn't migrated yet
+// goes to CloakTail instead of getting a session.
+app.post('/login', async (req, res) => {
+  const user = await checkLegacyPassword(req.body.username, req.body.password);
+  if (!user) return res.status(401).render('login', { error: 'Wrong username or password.' });
+  if (user.migratedAt) return res.redirect(\`/auth/keycloak?login_hint=\${encodeURIComponent(user.username)}\`);
+
+  const now = Math.floor(Date.now() / 1000);
+  req.session.migration = { state: crypto.randomUUID(), userId: user.id };
+  const request = signRequest({
+    iss: CLIENT_ID,
+    aud: MIGRATE_URL,
+    iat: now,
+    exp: now + 300,                     // at most 10 minutes
+    jti: crypto.randomUUID(),           // new for every request
+    sub: String(user.id),               // your id; Keycloak keeps it as legacy_id
+    preferred_username: user.username,  // their Keycloak username
+    email: user.email,                  // optional
+    given_name: user.firstName,         // optional
+    family_name: user.lastName,         // optional
+    return_url: RETURN_URL,
+    state: req.session.migration.state,
+  });
+  res.redirect(\`\${MIGRATE_URL}/start?request=\${request}\`);
+});
+
+// Step 2: CloakTail sends the user back here with ?result=…
+app.get('${returnPath}', async (req, res) => {
+  const result = verifyResult(req.query.result);
+  const pending = req.session.migration;
+  delete req.session.migration;
+  if (!result || !pending || result.state !== pending.state) return res.status(400).send('Invalid migration result.');
+
+  switch (result.status) {
+    case 'created':
+    case 'already_migrated':
+      await markMigrated(result.sub, result.keycloak_id);
+      // Step 3: sign in with Keycloak from now on.${otpNote}
+      return res.redirect(\`/auth/keycloak?login_hint=\${encodeURIComponent(result.preferred_username)}\`);
+    case 'conflict':
+      // Another Keycloak account has this username or email: needs a person to sort out.
+      return res.render('migration-conflict');
+    default: // cancelled, expired, error: let them in the old way this time, and ask again next time.
+      req.session.userId = pending.userId;
+      return res.redirect('/');
+  }
+});`;
+
+  const python = `import base64, hashlib, hmac, json, os, secrets, time, uuid
+from urllib.parse import urlencode
+from flask import abort, redirect, render_template, request, session
+${hs ? '' : 'import jwt  # pip install "pyjwt[crypto]", to sign with your private key\n'}
+MIGRATE_URL = '${migrateUrl}'
+CLIENT_ID = '${clientId}'
+RETURN_URL = '${returnUrl}'
+MIGRATION_SECRET = os.environ['CLOAKTAIL_MIGRATION_SECRET'].encode()  # from the migration page
+${hs ? '' : `PRIVATE_KEY = os.environ['MIGRATION_PRIVATE_KEY']  # pairs with the ${requestKey === 'jwks' ? 'key in your JWKS' : 'public key you registered'}\n`}
+
+def b64(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b'=').decode()
+
+
+def unb64(text: str) -> bytes:
+    return base64.urlsafe_b64decode(text + '=' * (-len(text) % 4))
+
+
+def sign_request(claims: dict) -> str:
+${hs ? `    signing_input = b64(json.dumps({'alg': 'HS256', 'typ': 'JWT'}).encode()) + '.' + b64(json.dumps(claims).encode())
+    signature = hmac.new(MIGRATION_SECRET, signing_input.encode(), hashlib.sha256).digest()
+    return signing_input + '.' + b64(signature)` : `    return jwt.encode(claims, PRIVATE_KEY, algorithm='RS256'${requestKey === 'jwks' ? ", headers={'kid': 'my-key-1'}" : ''})`}
+
+
+def verify_result(token: str):
+    """Checks a result from CloakTail; returns its claims, or None."""
+    try:
+        header, payload, signature = token.split('.')
+        expected = hmac.new(MIGRATION_SECRET, f'{header}.{payload}'.encode(), hashlib.sha256).digest()
+        if not hmac.compare_digest(unb64(signature), expected):
+            return None
+        if json.loads(unb64(header)).get('alg') != 'HS256':
+            return None
+        claims = json.loads(unb64(payload))
+    except ValueError:
+        return None
+    if claims.get('aud') != CLIENT_ID or claims.get('exp', 0) < time.time():
+        return None
+    return claims
+
+
+# Step 1: your existing login. Once the old password checks out, a user who isn't migrated yet
+# goes to CloakTail instead of getting a session.
+@app.post('/login')
+def login():
+    user = check_legacy_password(request.form['username'], request.form['password'])
+    if user is None:
+        return render_template('login.html', error='Wrong username or password.'), 401
+    if user.migrated_at:
+        return redirect('/auth/keycloak?' + urlencode({'login_hint': user.username}))
+
+    now = int(time.time())
+    session['migration'] = {'state': secrets.token_urlsafe(16), 'user_id': user.id}
+    token = sign_request({
+        'iss': CLIENT_ID,
+        'aud': MIGRATE_URL,
+        'iat': now,
+        'exp': now + 300,                    # at most 10 minutes
+        'jti': str(uuid.uuid4()),            # new for every request
+        'sub': str(user.id),                 # your id; Keycloak keeps it as legacy_id
+        'preferred_username': user.username,  # their Keycloak username
+        'email': user.email,                 # optional
+        'given_name': user.first_name,       # optional
+        'family_name': user.last_name,       # optional
+        'return_url': RETURN_URL,
+        'state': session['migration']['state'],
+    })
+    return redirect(f'{MIGRATE_URL}/start?' + urlencode({'request': token}))
+
+
+# Step 2: CloakTail sends the user back here with ?result=…
+@app.get('${returnPath}')
+def migrated():
+    result = verify_result(request.args.get('result', ''))
+    pending = session.pop('migration', None)
+    if result is None or pending is None or result.get('state') != pending['state']:
+        abort(400)
+
+    if result['status'] in ('created', 'already_migrated'):
+        mark_migrated(result['sub'], result.get('keycloak_id'))
+        # Step 3: sign in with Keycloak from now on.${otpNote}
+        return redirect('/auth/keycloak?' + urlencode({'login_hint': result['preferred_username']}))
+    if result['status'] == 'conflict':
+        # Another Keycloak account has this username or email: needs a person to sort out.
+        return render_template('migration_conflict.html')
+    # cancelled, expired, error: let them in the old way this time, and ask again next time.
+    session['user_id'] = pending['user_id']
+    return redirect('/')`;
+
+  return [
+    { lang: 'node', label: 'Node.js', filename: 'migration.js (Express)', language: 'javascript', code: node },
+    { lang: 'python', label: 'Python', install: hs ? undefined : 'pip install "pyjwt[crypto]"', filename: 'migration.py (Flask)', language: 'python', code: python },
+  ];
+}

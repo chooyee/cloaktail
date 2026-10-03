@@ -189,6 +189,20 @@ async function migrateSpKeysToProfiles() {
   }
 }
 
+// User migration was first configured per Keycloak profile in the admin console (migration_clients);
+// it now belongs to developer applications (app_migrations). The old tables are dropped when empty.
+async function dropProfileMigrationTables() {
+  const { exists } = await one("SELECT to_regclass('migration_clients') IS NOT NULL AS exists");
+  if (!exists) return;
+  const { n } = await one('SELECT COUNT(*)::int AS n FROM migration_clients');
+  if (n) {
+    console.warn(`Table migration_clients holds ${n} admin-console migration client(s), which are no longer used: user migration is `
+      + 'now set up on each developer application. Recreate them there, then drop migration_events and migration_clients.');
+    return;
+  }
+  await withSchemaClient('dropping migration_clients', (client) => client.query('DROP TABLE IF EXISTS migration_events, migration_clients'));
+}
+
 // Applications were all SAML before OIDC clients could be registered.
 async function migrateAppProtocol() {
   const done = await one("SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'apps' AND column_name = 'protocol'");
@@ -202,6 +216,7 @@ await migrateSpKeysToProfiles();
 await ensureSchema();
 await migrateToPerProfileData();
 await migrateAppProtocol();
+await dropProfileMigrationTables();
 
 // Permissions are global (defined in code); roles are per profile (seedRoles).
 await transaction(async () => {
@@ -499,61 +514,59 @@ export const promotePendingSpKey = (profileId) => transaction(async () => {
 export const deleteSpKeyRow = (profileId, status) =>
   exec('DELETE FROM sp_keys WHERE profile_id = $1 AND status = $2', [profileId, status]);
 
-// ---------- user migration clients (rows as stored; migrationClients.js decrypts) ----------
-// Managed from the admin console by profile id; /migrate looks them up in the request's profile.
+// ---------- user migration of developer apps (rows as stored; lib/userMigration.js decrypts) ----------
+// Reached through an app, which is already scoped to the profile.
 
-export const listMigrationClientRows = (profileId) => all(`
-  SELECT c.*,
-    (SELECT COUNT(*)::int FROM migration_events e WHERE e.client_pk = c.id AND e.status IN ('created', 'already_migrated')) AS migrated,
-    (SELECT COUNT(*)::int FROM migration_events e WHERE e.client_pk = c.id AND e.status = 'conflict') AS conflicts
-  FROM migration_clients c WHERE c.profile_id = $1 ORDER BY lower(c.name)
-`, [profileId]);
+export const getAppMigrationRow = (appId) => one('SELECT * FROM app_migrations WHERE app_id = $1', [appId]);
 
-export const getMigrationClientRow = async (profileId, id) =>
-  (validId(id) ? one('SELECT * FROM migration_clients WHERE id = $1 AND profile_id = $2', [id, profileId]) : null);
-
-export const getMigrationClientRowByClientId = (profileId, clientId) =>
-  one('SELECT * FROM migration_clients WHERE profile_id = $1 AND client_id = $2', [profileId, clientId]);
-
-export async function insertMigrationClientRow(profileId, { clientId, name, enabled, settings, secrets, by }) {
-  return (await one(`
-    INSERT INTO migration_clients (profile_id, client_id, name, enabled, settings, secrets, created_by, updated_by)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $7) RETURNING id
-  `, [profileId, clientId, name, enabled ? 1 : 0, settings, secrets, by])).id;
-}
-
-export async function updateMigrationClientRow(profileId, id, { clientId, name, enabled, settings, secrets, by }) {
+export async function putAppMigrationRow(appId, { enabled, settings, secret, by }) {
   await exec(`
-    UPDATE migration_clients SET client_id = $1, name = $2, enabled = $3, settings = $4, secrets = $5, updated_by = $6, updated_at = ${NOW}
-    WHERE id = $7 AND profile_id = $8
-  `, [clientId, name, enabled ? 1 : 0, settings, secrets, by, id, profileId]);
+    INSERT INTO app_migrations (app_id, enabled, settings, secret, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $5)
+    ON CONFLICT (app_id) DO UPDATE SET enabled = excluded.enabled, settings = excluded.settings, secret = excluded.secret,
+      updated_by = excluded.updated_by, updated_at = ${NOW}
+  `, [appId, enabled ? 1 : 0, settings, secret, by]);
 }
 
-export const deleteMigrationClientRow = (profileId, id) =>
-  exec('DELETE FROM migration_clients WHERE id = $1 AND profile_id = $2', [id, profileId]);
+export const deleteAppMigrationRow = (appId) => exec('DELETE FROM app_migrations WHERE app_id = $1', [appId]);
 
-// Records a new request. Returns false when this client already sent that request id (a replay).
-export async function startMigrationEvent({ clientPk, jti, legacyId, username, ip }) {
+// The app a migration request names (its iss is the app's client ID), in the request's profile.
+export const getAppByClientId = (clientId) =>
+  one('SELECT * FROM apps WHERE profile_id = $1 AND client_id = $2', [currentProfileId(), clientId]);
+
+// Records a new request. Returns false when the app already sent that request id (a replay).
+export async function startMigrationEvent({ appId, jti, legacyId, username, ip }) {
   const { rowCount } = await exec(`
-    INSERT INTO migration_events (client_pk, jti, legacy_id, username, status, ip) VALUES ($1, $2, $3, $4, 'started', $5)
-    ON CONFLICT (client_pk, jti) DO NOTHING
-  `, [clientPk, jti, legacyId, username, ip]);
+    INSERT INTO app_migration_events (app_id, jti, legacy_id, username, status, ip) VALUES ($1, $2, $3, $4, 'started', $5)
+    ON CONFLICT (app_id, jti) DO NOTHING
+  `, [appId, jti, legacyId, username, ip]);
   return rowCount === 1;
 }
 
-export async function finishMigrationEvent({ clientPk, jti, status, keycloakId = null, detail = null }) {
+export async function finishMigrationEvent({ appId, jti, status, keycloakId = null, detail = null }) {
   await exec(`
-    UPDATE migration_events SET status = $1, keycloak_id = COALESCE($2, keycloak_id), detail = $3, updated_at = ${NOW}
-    WHERE client_pk = $4 AND jti = $5
-  `, [status, keycloakId, detail, clientPk, jti]);
+    UPDATE app_migration_events SET status = $1, keycloak_id = COALESCE($2, keycloak_id), detail = $3, updated_at = ${NOW}
+    WHERE app_id = $4 AND jti = $5
+  `, [status, keycloakId, detail, appId, jti]);
 }
 
-export const listMigrationEvents = (clientPk, limit = 50) =>
-  all('SELECT * FROM migration_events WHERE client_pk = $1 ORDER BY id DESC LIMIT $2', [clientPk, limit]);
+// A request that failed its checks, so the developer can see why. Only the latest are kept.
+const KEEP_REJECTED = 50;
+export const recordRejectedMigration = ({ appId, detail, ip }) => transaction(async () => {
+  await exec("INSERT INTO app_migration_events (app_id, status, detail, ip) VALUES ($1, 'rejected', $2, $3)", [appId, detail, ip]);
+  await exec(`DELETE FROM app_migration_events WHERE app_id = $1 AND status = 'rejected' AND id NOT IN
+    (SELECT id FROM app_migration_events WHERE app_id = $1 AND status = 'rejected' ORDER BY id DESC LIMIT ${KEEP_REJECTED})`, [appId]);
+});
 
-export const countMigrationEvents = async (clientPk) => Object.fromEntries((await all(
-  'SELECT status, COUNT(*)::int AS n FROM migration_events WHERE client_pk = $1 GROUP BY status', [clientPk],
-)).map((r) => [r.status, r.n]));
+export const listMigrationEvents = (appId, limit = 50) =>
+  all('SELECT * FROM app_migration_events WHERE app_id = $1 ORDER BY id DESC LIMIT $2', [appId, limit]);
+
+// Requests by status, plus `migratedUsers`: distinct legacy users who now have a Keycloak account.
+export async function countMigrationEvents(appId) {
+  const rows = await all('SELECT status, COUNT(*)::int AS n FROM app_migration_events WHERE app_id = $1 GROUP BY status', [appId]);
+  const { users } = await one(`SELECT COUNT(DISTINCT legacy_id)::int AS users FROM app_migration_events
+    WHERE app_id = $1 AND status IN ('created', 'already_migrated')`, [appId]);
+  return { ...Object.fromEntries(rows.map((r) => [r.status, r.n])), migratedUsers: users };
+}
 
 // ---------- admin console accounts ----------
 

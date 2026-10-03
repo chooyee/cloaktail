@@ -12,10 +12,15 @@ import {
   createOidcClient, updateOidcClient, loadOidcClient, getOidcClientSecret, regenerateOidcClientSecret,
 } from '../lib/oidcClients.js';
 import { startTest, finishTest } from '../lib/samlTest.js';
-import { samlSamples, oidcSamples } from '../lib/codeSamples.js';
+import { samlSamples, oidcSamples, migrationSamples } from '../lib/codeSamples.js';
+import {
+  MIGRATION_ATTRIBUTES, REQUEST_KEYS, getAppMigration, defaultMigrationValues, migrationValues, parseMigrationForm,
+  saveAppMigration, regenerateMigrationSecret, sandboxAttributesProblem,
+} from '../lib/userMigration.js';
 import { startOidcTest, finishOidcTest } from '../lib/oidcTest.js';
 import {
   listApps, countApps, getApp, insertApp, renameApp, deleteApp, listTestRuns, getTestRun, insertTestRun, countTestUsers,
+  listMigrationEvents, countMigrationEvents,
 } from '../db.js';
 import { requirePermission, redirect, isHtmx, sendError } from '../middleware.js';
 
@@ -170,8 +175,12 @@ appsRouter.get('/:id', async (req, res) => {
   const client = await loadClientOr404(req, res, app);
   if (!client) return;
   const canEdit = canEditApp(req, app);
-  const [runs, testUserCount] = await Promise.all([listTestRuns(app.id), countTestUsers(req.user.username)]);
+  const [runs, testUserCount, migration, migrationCounts] = await Promise.all([
+    listTestRuns(app.id), countTestUsers(req.user.username), getAppMigration(app.id), countMigrationEvents(app.id),
+  ]);
   const common = {
+    migration,
+    migrationCounts,
     title: app.name,
     app,
     values: client.values,
@@ -249,6 +258,76 @@ appsRouter.post('/:id/secret', async (req, res) => {
   if (app.protocol !== 'oidc') return sendError(req, res, 400, 'Only OpenID Connect clients have a client secret.');
   await regenerateOidcClientSecret(app.kc_id);
   redirect(req, res, `/apps/${app.id}?secret`);
+});
+
+// ---------- user migration ----------
+// The application sends its not-yet-migrated users to /migrate (routes/migrate.js); here its
+// developer sets that up and reads how to do the redirect.
+
+async function renderMigration(req, res, app, { status = 200, values = null, errors = {}, message = null } = {}) {
+  const migration = await getAppMigration(app.id);
+  const canEdit = canEditApp(req, app);
+  const settings = migration?.settings;
+  const migrateUrl = `${req.siteUrl}/migrate`;
+  const [events, counts, attributesProblem] = await Promise.all([
+    listMigrationEvents(app.id),
+    countMigrationEvents(app.id),
+    migration?.enabled ? sandboxAttributesProblem() : null,
+  ]);
+  // The migration secret is only shown to those who may change the application.
+  if (canEdit && migration) res.set('Cache-Control', 'no-store');
+  res.status(status).render('pages/apps/migration', {
+    title: `User migration · ${app.name}`,
+    app,
+    migration,
+    canEdit,
+    secret: canEdit && migration && !migration.secretUnreadable ? migration.secret : null,
+    values: values ?? (migration ? migrationValues(migration) : defaultMigrationValues()),
+    errors,
+    message,
+    REQUEST_KEYS,
+    MIGRATION_ATTRIBUTES,
+    migrateUrl,
+    sandboxRealm: config.sandbox.realm,
+    events,
+    counts,
+    attributesProblem,
+    samples: migrationSamples({
+      clientId: app.client_id,
+      migrateUrl,
+      returnUrl: settings?.returnUrls[0] || 'https://myapp.example.com/migrated',
+      requestKey: settings?.requestKey || 'secret',
+      requireOtp: settings?.requireOtp ?? true,
+    }),
+  });
+}
+
+appsRouter.get('/:id/migration', async (req, res) => {
+  const app = await loadApp(req, res);
+  if (!app) return;
+  const message = 'secret' in req.query ? 'New migration secret created. The old one stopped working: update your application now.' : null;
+  await renderMigration(req, res, app, { message });
+});
+
+appsRouter.post('/:id/migration', async (req, res) => {
+  const app = await loadApp(req, res, { write: true });
+  if (!app) return;
+  const existing = await getAppMigration(app.id);
+  const values = parseMigrationForm(req.body);
+  const { errors } = await saveAppMigration(app, values, existing, req.user.username);
+  if (Object.keys(errors).length) return renderMigration(req, res, app, { status: 422, values, errors });
+  await renderMigration(req, res, app, {
+    message: existing ? 'Saved. It applies to new requests at once.' : 'User migration is set up. Copy the migration secret into your application’s configuration.',
+  });
+});
+
+appsRouter.post('/:id/migration/secret', async (req, res) => {
+  const app = await loadApp(req, res, { write: true });
+  if (!app) return;
+  const migration = await getAppMigration(app.id);
+  if (!migration) return sendError(req, res, 400, 'Set up user migration first.');
+  await regenerateMigrationSecret(app, migration, req.user.username);
+  redirect(req, res, `/apps/${app.id}/migration?secret`);
 });
 
 // ---------- delete ----------
