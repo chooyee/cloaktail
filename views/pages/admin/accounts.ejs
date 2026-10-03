@@ -1,10 +1,14 @@
 <%- include('../../partials/header') %>
-<h1 class="text-2xl font-semibold">Administrators</h1>
-<p class="mt-1 text-muted-foreground">Local accounts for this admin console. They are separate from Keycloak users and portal roles.</p>
+<header class="page-header">
+<div class="min-w-0">
+<h1 class="page-title">Administrators</h1>
+<p class="page-description">Local accounts for this admin console. They are separate from Keycloak users and portal roles.</p>
+</div>
+</header>
 
 <div class="mt-6 grid gap-6 lg:grid-cols-[1fr_22rem]">
-  <div class="card self-start">
-    <section class="overflow-x-auto">
+  <div class="card card-table self-start">
+    <section>
       <table class="table">
         <thead>
           <tr><th>Username</th><th>Status</th><th>Last sign-in</th><th>Created</th><th></th></tr>
@@ -15,12 +19,12 @@
             <tr>
               <td class="font-medium">
                 <%= a.username %>
-                <% if (a.username === admin.username) { %><span class="badge ml-1" data-variant="outline">you</span><% } %>
+                <% if (a.username === admin.username) { %><span class="badge ml-1" data-variant="secondary">you</span><% } %>
               </td>
               <td>
-                <% if (locked) { %><span class="badge" data-variant="destructive">Locked</span>
-                <% } else if (a.must_change_password) { %><span class="badge" data-variant="secondary">Must change password</span>
-                <% } else { %><span class="badge" data-variant="outline">Active</span><% } %>
+                <% if (locked) { %><span class="badge" data-tone="danger">Locked</span>
+                <% } else if (a.must_change_password) { %><span class="badge" data-tone="warning">Must change password</span>
+                <% } else { %><span class="badge" data-tone="success">Active</span><% } %>
               </td>
               <td class="text-muted-foreground"><%= a.last_login_at ? `${a.last_login_at} UTC` : 'Never' %></td>
               <td class="text-muted-foreground"><%= a.created_at %> UTC<%= a.created_by ? ` by ${a.created_by}` : '' %></td>

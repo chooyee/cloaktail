@@ -2,7 +2,7 @@
 <%
   const isNew = !client;
   const fieldError = (key) => errors[key];
-  const STATUS_VARIANTS = { created: 'default', already_migrated: 'default', conflict: 'destructive', error: 'destructive', started: 'secondary', cancelled: 'secondary', expired: 'secondary' };
+  const STATUS_TONES = { created: 'success', already_migrated: 'success', conflict: 'danger', error: 'danger', started: 'info', cancelled: 'neutral', expired: 'neutral' };
   // Textarea with hint and inline error; returns HTML, so every value is escaped here.
   const textarea = (name, label, { rows = 3, hint = '', placeholder = '' } = {}) => {
     const err = fieldError(name);
@@ -16,15 +16,19 @@
   };
   function escape(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
 %>
-<a href="<%= basePath %>" class="text-sm text-muted-foreground hover:underline">← User migration: <%= profile.name %></a>
-<div class="mt-2 flex flex-wrap items-center gap-3">
-  <h1 class="text-2xl font-semibold"><%= isNew ? 'New migration client' : client.name %></h1>
-  <% if (!isNew) { %><span class="badge" data-variant="<%= client.enabled ? 'default' : 'secondary' %>"><%= client.enabled ? 'Enabled' : 'Disabled' %></span><% } %>
+<header class="page-header">
+<div class="min-w-0">
+  <div class="flex min-w-0 flex-wrap items-center gap-2">
+    <h1 class="page-title"><%= isNew ? 'New migration client' : client.name %></h1>
+    <% if (!isNew) { %><span class="badge" data-tone="<%= client.enabled ? 'success' : 'neutral' %>"><%= client.enabled ? 'Enabled' : 'Disabled' %></span><% } %>
+  </div>
+  <p class="page-description">
+    Users are created in the sandbox realm <code><%= profile.settings.sandboxRealm %></code> by its service account
+    <code><%= profile.settings.sandboxAdminClientId %></code>, with the profile exactly as the application sends it.
+  </p>
 </div>
-<p class="mt-1 max-w-3xl text-muted-foreground">
-  Users are created in the sandbox realm <code><%= profile.settings.sandboxRealm %></code> by its service account
-  <code><%= profile.settings.sandboxAdminClientId %></code>, with the profile exactly as the application sends it.
-</p>
+<div class="page-actions"><a href="<%= basePath %>" class="btn" data-variant="outline">Back to user migration</a></div>
+</header>
 
 <div class="mt-6 grid gap-6 lg:grid-cols-[1fr_22rem]">
   <div class="grid gap-6 self-start">
@@ -105,7 +109,7 @@
           <p>After a user signs in with their old password and isn’t migrated yet, send them to CloakTail with a signed request.</p>
         </header>
         <section class="grid gap-4 text-sm">
-          <dl class="grid gap-x-6 gap-y-2 sm:grid-cols-[9rem_1fr]">
+          <dl class="kv">
             <dt class="text-muted-foreground">Start URL</dt>
             <dd class="grid gap-1">
               <% if (startUrls.length) { for (const u of startUrls) { %><code class="break-all"><%= u %></code><% } } else { %>
@@ -156,7 +160,7 @@
                     <td class="whitespace-nowrap"><%= e.updated_at %></td>
                     <td class="break-all"><%= e.username %></td>
                     <td class="break-all font-mono text-xs"><%= e.legacy_id %></td>
-                    <td><span class="badge" data-variant="<%= STATUS_VARIANTS[e.status] || 'secondary' %>"><%= e.status.replace('_', ' ') %></span></td>
+                    <td><span class="badge" data-tone="<%= STATUS_TONES[e.status] || 'neutral' %>"><%= e.status.replace('_', ' ') %></span></td>
                     <td class="max-w-xs break-words text-xs text-muted-foreground"><%= e.detail || '' %></td>
                   </tr>
                 <% } %>
@@ -185,7 +189,7 @@
         </header>
         <section>
           <% if (newSecret) { %>
-            <div class="alert" role="status">
+            <div class="alert" data-tone="warning" role="status">
               <h2>Copy it now</h2>
               <section class="grid gap-2">
                 <p>It won’t be shown again.</p>

@@ -2,5 +2,5 @@
 <% if (typeof error !== 'undefined' && error) { %>
   <div class="alert" data-variant="destructive" role="alert"><section><%= error %></section></div>
 <% } else if (typeof message !== 'undefined' && message) { %>
-  <div class="alert" role="status"><section><%= message %></section></div>
+  <div class="alert" data-tone="success" role="status"><%- icon('check') %><section><%= message %></section></div>
 <% } %>

@@ -95,86 +95,91 @@
     });
   </script>
 </head>
+<%
+  const nav = navigation({ user, admin: typeof admin !== 'undefined' ? admin : null, path: currentPath, can });
+  const bleed = typeof fullBleed !== 'undefined' && fullBleed;
+  // bare: pages for other applications' users (user migration), without the portal's navigation.
+  const bareLayout = typeof bare !== 'undefined' && bare;
+%>
 <body class="min-h-screen bg-background text-foreground" hx-headers='{"X-CSRF-Token": "<%= csrfToken %>"}'>
+  <a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-3 focus:py-2 focus:shadow">Skip to content</a>
+<% if (nav.shell && !bareLayout) { %>
+  <%# ---------- Signed-in layout: tinted sidebar, content on white ---------- %>
+  <% const home = nav.adminArea ? '/admin' : '/'; %>
+  <div class="lg:grid lg:min-h-screen lg:grid-cols-[15rem_minmax(0,1fr)]">
+    <aside class="sticky top-0 hidden h-screen flex-col border-r bg-muted/50 lg:flex">
+      <div class="flex h-14 shrink-0 items-center gap-2 px-4">
+        <a href="<%= home %>" class="flex items-center gap-2 font-semibold"><%- include('logo') %>CloakTail</a>
+        <% if (nav.adminArea) { %><span class="badge ml-auto" data-variant="outline">Admin</span><% } %>
+      </div>
+      <%- include('sidebar', { nav }) %>
+    </aside>
+
+    <div class="flex min-h-screen min-w-0 flex-col">
+      <header class="sticky top-0 z-20 border-b bg-background/95 backdrop-blur lg:hidden">
+        <div class="relative flex h-14 items-center gap-3 px-4">
+          <a href="<%= home %>" class="flex shrink-0 items-center gap-2 font-semibold"><%- include('logo') %>CloakTail</a>
+          <% if (nav.adminArea) { %><span class="badge" data-variant="outline">Admin</span><% } %>
+          <details class="group ml-auto">
+            <summary class="btn list-none [&::-webkit-details-marker]:hidden" data-variant="outline" data-size="sm">
+              <%- icon('menu') %><span class="group-open:hidden">Menu</span><span class="hidden group-open:inline">Close</span>
+            </summary>
+            <div class="absolute inset-x-0 top-full flex max-h-[calc(100dvh-3.5rem)] flex-col overflow-y-auto border-b bg-muted shadow-lg">
+              <%- include('sidebar', { nav }) %>
+            </div>
+          </details>
+        </div>
+      </header>
+
+      <main id="main" class="flex-1 <%= bleed ? '' : 'mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-10 lg:py-8' %>">
+        <% if (!bleed && nav.group) { %>
+          <%# Where am I: section / page (/ the page's own title, below the section's top level). %>
+          <nav class="breadcrumb mb-3" aria-label="Breadcrumb">
+            <ol class="flex flex-wrap items-center text-xs">
+              <li><%= nav.group.label %></li>
+              <li aria-hidden="true">/</li>
+              <% if (currentPath === nav.link.href) { %>
+                <li><span aria-current="page"><%= nav.link.label %></span></li>
+              <% } else { %>
+                <li><a href="<%= nav.link.href %>"><%= nav.link.label %></a></li>
+                <li aria-hidden="true">/</li>
+                <li class="min-w-0"><span aria-current="page" class="block truncate"><%= title %></span></li>
+              <% } %>
+            </ol>
+          </nav>
+        <% } %>
+        <div id="flash" aria-live="polite" class="<%= bleed ? 'mx-auto max-w-6xl px-4' : '' %>"></div>
+<% } else if (bareLayout) { %>
+  <%# ---------- Bare layout: the logo only ---------- %>
+  <header class="border-b">
+    <div class="mx-auto flex h-14 max-w-6xl items-center px-4">
+      <span class="flex shrink-0 items-center gap-2 font-semibold"><%- include('logo') %>CloakTail</span>
+    </div>
+  </header>
+  <main id="main" class="mx-auto max-w-6xl px-4 py-8">
+    <div id="flash" aria-live="polite"></div>
+<% } else { %>
+  <%# ---------- Public layout: top bar ---------- %>
   <header class="sticky top-0 z-10 border-b bg-background/90 backdrop-blur">
     <div class="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4">
-<% const adminArea = typeof admin !== 'undefined' && admin && currentPath.startsWith('/admin'); %>
-<%# bare: pages for other applications' users (user migration), without the portal's navigation. %>
-<% const bareLayout = typeof bare !== 'undefined' && bare; %>
-<% if (bareLayout) { %>
-      <span class="flex shrink-0 items-center gap-2 font-semibold"><%- include('logo') %> CloakTail</span>
-<% } else { %>
-      <a href="<%= adminArea ? '/admin' : '/' %>" class="flex shrink-0 items-center gap-2 font-semibold">
+      <a href="/" class="flex shrink-0 items-center gap-2 font-semibold">
         <%- include('logo') %>
-        <span class="<%= user || adminArea ? 'hidden sm:inline' : '' %>">CloakTail</span>
+        <span>CloakTail</span>
       </a>
-<% } %>
-<% if (bareLayout) { %>
-<% } else if (adminArea) { %>
-      <span class="badge shrink-0" data-variant="secondary">Admin</span>
-      <nav class="-mx-1 flex min-w-0 items-center gap-1 overflow-x-auto px-1 text-sm" aria-label="Admin">
-        <% const adminLinks = admin.mustChangePassword
-             ? [{ href: '/admin/password', label: 'Change password' }]
-             : [
-                 { href: '/admin/keycloak', label: 'Keycloak profiles' },
-                 { href: '/admin/accounts', label: 'Administrators' },
-                 { href: '/admin/password', label: 'Change password' },
-               ]; %>
-        <% for (const link of adminLinks) { const active = currentPath.startsWith(link.href); %>
-          <a href="<%= link.href %>" class="btn shrink-0" data-variant="<%= active ? 'secondary' : 'ghost' %>" data-size="sm"
-             <%- active ? 'aria-current="page"' : '' %>><%= link.label %></a>
-        <% } %>
-      </nav>
-      <div class="ml-auto flex shrink-0 items-center gap-3 text-sm">
-        <span class="hidden text-muted-foreground lg:inline"><%= admin.username %></span>
-        <form method="post" action="/admin/logout">
-          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-          <button type="submit" class="btn" data-variant="outline" data-size="sm">Sign out</button>
-        </form>
-      </div>
-<% } else if (user) { %>
-      <nav class="-mx-1 flex min-w-0 items-center gap-1 overflow-x-auto px-1 text-sm" aria-label="Main">
-        <% const links = [
-             { href: '/', label: 'Dashboard', perms: ['dashboard.view'] },
-             { href: '/apps', label: 'Applications', perms: ['apps.own', 'apps.view_all'] },
-             { href: '/test-users', label: 'Test users', perms: ['apps.own'] },
-             { href: '/tools/certificate', label: 'Certificates', perms: ['apps.own'] },
-             { href: '/tools/decode', label: 'Decoder', perms: [] },
-             { href: '/users', label: 'Users', perms: ['users.view'] },
-             { href: '/roles', label: 'Roles', perms: ['roles.view'] },
-             { href: '/guide', label: 'Guide', perms: [] },
-           ].filter((l) => !l.perms.length || l.perms.some(can)); %>
-        <% for (const link of links) {
-             const active = link.href === '/' ? currentPath === '/' : currentPath.startsWith(link.href); %>
-          <a href="<%= link.href %>" class="btn shrink-0" data-variant="<%= active ? 'secondary' : 'ghost' %>" data-size="sm"
-             <%- active ? 'aria-current="page"' : '' %>><%= link.label %></a>
-        <% } %>
-      </nav>
-      <div class="ml-auto flex shrink-0 items-center gap-3 text-sm">
-        <span class="hidden text-muted-foreground lg:inline">
-          <%= [user.firstName, user.lastName].filter(Boolean).join(' ') || user.username %>
-        </span>
-        <form method="post" action="/logout">
-          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-          <button type="submit" class="btn" data-variant="outline" data-size="sm">Sign out</button>
-        </form>
-      </div>
-<% } else { %>
       <nav class="hidden items-center gap-1 text-sm md:flex" aria-label="Main">
         <a href="/#quickstart" class="btn" data-variant="ghost" data-size="sm">Quickstart</a>
         <a href="/#features" class="btn" data-variant="ghost" data-size="sm">Features</a>
         <a href="/#test-login" class="btn" data-variant="ghost" data-size="sm">How testing works</a>
-        <a href="/troubleshooting" class="btn" data-variant="ghost" data-size="sm">Troubleshooting</a>
-        <a href="/tools/decode" class="btn" data-variant="ghost" data-size="sm">Decoders</a>
+        <a href="/troubleshooting" class="btn" data-variant="ghost" data-size="sm" <%- currentPath.startsWith('/troubleshooting') ? 'aria-current="page"' : '' %>>Troubleshooting</a>
+        <a href="/tools/decode" class="btn" data-variant="ghost" data-size="sm" <%- currentPath.startsWith('/tools/decode') ? 'aria-current="page"' : '' %>>Decoders</a>
       </nav>
       <div class="ml-auto flex items-center gap-2">
         <%# Don't offer a link to the page you're already on. %>
         <% if (currentPath !== '/login') { %><a href="/login" class="btn" data-variant="ghost" data-size="sm">Sign in</a><% } %>
         <% if (registrationEnabled && currentPath !== '/register') { %><a href="/register" class="btn" data-size="sm">Get started</a><% } %>
       </div>
-<% } %>
     </div>
   </header>
-<% const bleed = typeof fullBleed !== 'undefined' && fullBleed; %>
-  <main class="<%= bleed ? '' : 'mx-auto max-w-6xl px-4 py-8' %>">
+  <main id="main" class="<%= bleed ? '' : 'mx-auto max-w-6xl px-4 py-8' %>">
     <div id="flash" aria-live="polite" class="<%= bleed ? 'mx-auto max-w-6xl px-4' : '' %>"></div>
+<% } %>

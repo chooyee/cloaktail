@@ -1,17 +1,17 @@
 <%- include('../../partials/header') %>
 <% const served = profiles.some((p) => p.domains.length); %>
-<div class="flex flex-wrap items-end justify-between gap-4">
-  <div>
-    <h1 class="text-2xl font-semibold">Keycloak profiles</h1>
-    <p class="mt-1 max-w-3xl text-muted-foreground">
+<header class="page-header">
+  <div class="min-w-0">
+    <h1 class="page-title">Keycloak profiles</h1>
+    <p class="page-description">
       Each profile is a complete Keycloak connection and serves its own domains, with its own users, roles and sandbox data. Changes apply at once, without a restart.
     </p>
   </div>
-  <div class="flex flex-wrap gap-2">
+  <div class="page-actions">
     <a href="/admin/keycloak/import" class="btn" data-variant="outline">Import</a>
-    <a href="/admin/keycloak/new" class="btn">New profile</a>
+    <a href="/admin/keycloak/new" class="btn"><%- icon('plus') %>New profile</a>
   </div>
-</div>
+</header>
 
 <div class="mt-6 grid gap-6">
   <%- include('../../fragments/form-status', { error: null, message }) %>
@@ -47,8 +47,8 @@
       </section>
     </div>
   <% } else { %>
-    <div class="card">
-      <section class="overflow-x-auto">
+    <div class="card card-table">
+      <section>
         <table class="table">
           <thead>
             <tr><th>Profile</th><th>Domains</th><th>Keycloak</th><th>Realms</th><th>Secrets</th><th>Signing</th><th>Updated</th><th></th></tr>
@@ -63,7 +63,7 @@
                 </td>
                 <td class="font-mono text-xs">
                   <% for (const d of p.domains) { %><div><%= d %></div><% } %>
-                  <% if (!p.domains.length) { %><span class="badge" data-variant="secondary">None</span><% } %>
+                  <% if (!p.domains.length) { %><span class="badge" data-tone="neutral">None</span><% } %>
                 </td>
                 <td class="font-mono text-xs"><%= p.settings.url %></td>
                 <td class="text-xs">
@@ -71,17 +71,17 @@
                   <span class="text-muted-foreground">sandbox</span> <code><%= p.settings.sandboxRealm %></code>
                 </td>
                 <td>
-                  <% if (p.secretsUnreadable) { %><span class="badge" data-variant="destructive">Unreadable</span>
-                  <% } else { %><span class="badge" data-variant="<%= secretsSet === 2 ? 'outline' : 'secondary' %>"><%= secretsSet %> of 2 set</span><% } %>
+                  <% if (p.secretsUnreadable) { %><span class="badge" data-tone="danger">Unreadable</span>
+                  <% } else { %><span class="badge" data-tone="<%= secretsSet === 2 ? 'success' : 'warning' %>"><%= secretsSet %> of 2 set</span><% } %>
                 </td>
                 <td>
                   <% const keys = spKeys.get(p.id), active = keys?.active; %>
                   <a href="/admin/keycloak/profiles/<%= p.id %>/signing" class="flex flex-wrap gap-1">
-                    <% if (!active) { %><span class="badge" data-variant="<%= p.domains.length ? 'destructive' : 'secondary' %>">None</span>
-                    <% } else if (active.daysLeft < 0) { %><span class="badge" data-variant="destructive">Expired</span>
-                    <% } else if (active.daysLeft < 30) { %><span class="badge" data-variant="destructive"><%= active.daysLeft %> days left</span>
-                    <% } else { %><span class="badge" data-variant="outline">Until <%= active.validTo %></span><% } %>
-                    <% if (keys?.pending) { %><span class="badge" data-variant="secondary">Pending</span><% } %>
+                    <% if (!active) { %><span class="badge" data-tone="<%= p.domains.length ? 'danger' : 'neutral' %>">None</span>
+                    <% } else if (active.daysLeft < 0) { %><span class="badge" data-tone="danger">Expired</span>
+                    <% } else if (active.daysLeft < 30) { %><span class="badge" data-tone="warning"><%= active.daysLeft %> days left</span>
+                    <% } else { %><span class="badge" data-tone="success">Until <%= active.validTo %></span><% } %>
+                    <% if (keys?.pending) { %><span class="badge" data-tone="info">Pending</span><% } %>
                   </a>
                 </td>
                 <td class="text-xs text-muted-foreground"><%= p.updatedAt %> UTC<%= p.updatedBy ? ` by ${p.updatedBy}` : '' %></td>

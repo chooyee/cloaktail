@@ -1,60 +1,69 @@
 <%- include('../../partials/header') %>
-<div class="flex flex-wrap items-end justify-between gap-4">
-  <div>
-    <h1 class="text-2xl font-semibold"><%= showAll ? 'All applications' : 'My applications' %></h1>
-    <p class="mt-1 text-muted-foreground">
+<header class="page-header">
+  <div class="min-w-0">
+    <h1 class="page-title"><%= showAll ? 'All applications' : 'My applications' %></h1>
+    <p class="page-description">
       SAML and OpenID Connect clients in the <code><%= sandboxRealm %></code> sandbox realm.
       <% if (can('apps.own')) { %><%= ownCount %> of <%= maxApps %> used.<% } %>
     </p>
   </div>
-  <div class="flex gap-2">
+  <div class="page-actions">
     <% if (can('apps.view_all') && can('apps.own')) { %>
-      <a href="/apps<%= showAll ? '' : '?all=1' %>" class="btn" data-variant="outline"><%= showAll ? 'Show mine' : 'Show all' %></a>
+      <nav class="inline-flex gap-1 rounded-lg bg-muted p-1 text-sm" aria-label="Show">
+        <a href="/apps" class="btn" data-size="sm" data-variant="<%= showAll ? 'ghost' : 'outline' %>" <%- showAll ? '' : 'aria-current="page"' %>>Mine</a>
+        <a href="/apps?all=1" class="btn" data-size="sm" data-variant="<%= showAll ? 'outline' : 'ghost' %>" <%- showAll ? 'aria-current="page"' : '' %>>All</a>
+      </nav>
     <% } %>
-    <% if (can('apps.own') && ownCount < maxApps) { %>
-      <a href="/apps/new" class="btn">Register application</a>
+    <% if (can('apps.own') && ownCount < maxApps && apps.length) { %>
+      <a href="/apps/new" class="btn"><%- icon('plus') %>Register application</a>
     <% } %>
   </div>
-</div>
+</header>
 
 <% if (apps.length === 0) { %>
-  <div class="empty mt-8 rounded-lg border border-dashed">
+  <div class="empty mt-8 rounded-xl border border-dashed">
     <header>
+      <span class="icon-tile mx-auto mb-2"><%- icon('apps') %></span>
       <h3>No applications yet</h3>
       <p>Register your SAML service provider or OpenID Connect client to get Keycloak connection details and a test login.</p>
     </header>
     <% if (can('apps.own')) { %>
-      <section><a href="/apps/new" class="btn">Register application</a></section>
+      <section><a href="/apps/new" class="btn"><%- icon('plus') %>Register application</a></section>
     <% } %>
   </div>
 <% } else { %>
-  <div class="table-container mt-6 rounded-lg border">
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Application</th>
-          <th>Protocol</th>
-          <th>Entity / client ID</th>
-          <% if (showAll) { %><th>Owner</th><% } %>
-          <th>Last test</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% for (const a of apps) { %>
+  <div class="card card-table mt-8">
+    <section>
+      <table class="table">
+        <thead>
           <tr>
-            <td><a class="font-medium underline-offset-4 hover:underline" href="/apps/<%= a.id %>"><%= a.name %></a></td>
-            <td><span class="badge" data-variant="secondary"><%= a.protocol === 'oidc' ? 'OIDC' : 'SAML' %></span></td>
-            <td class="max-w-xs truncate font-mono text-xs"><%= a.client_id %></td>
-            <% if (showAll) { %><td><%= a.owner %></td><% } %>
-            <td>
-              <% if (a.last_test_ok === null) { %><span class="text-muted-foreground">Never tested</span>
-              <% } else if (a.last_test_ok) { %><span class="badge" data-variant="outline">Passed</span>
-              <% } else { %><span class="badge" data-variant="destructive">Failed</span><% } %>
-            </td>
+            <th class="pl-5">Application</th>
+            <th>Protocol</th>
+            <% if (showAll) { %><th>Owner</th><% } %>
+            <th>Last test</th>
+            <th class="pr-5"><span class="sr-only">Open</span></th>
           </tr>
-        <% } %>
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          <% for (const a of apps) { %>
+            <tr>
+              <td class="max-w-md pl-5">
+                <a class="font-medium hover:underline" href="/apps/<%= a.id %>"><%= a.name %></a>
+                <p class="truncate font-mono text-xs text-muted-foreground"><%= a.client_id %></p>
+              </td>
+              <td><span class="badge" data-variant="outline"><%= a.protocol === 'oidc' ? 'OpenID Connect' : 'SAML 2.0' %></span></td>
+              <% if (showAll) { %><td class="text-muted-foreground"><%= a.owner %></td><% } %>
+              <td>
+                <% if (a.last_test_ok === null) { %><span class="text-sm text-muted-foreground">Never tested</span>
+                <% } else if (a.last_test_ok) { %><span class="badge" data-tone="success"><%- icon('check', 'size-3') %>Passed</span>
+                <% } else { %><span class="badge" data-tone="danger"><%- icon('x', 'size-3') %>Failed</span><% } %>
+              </td>
+              <td class="w-10 pr-5 text-right"><a href="/apps/<%= a.id %>" class="btn" data-variant="ghost" data-size="icon-sm" aria-label="Open <%= a.name %>"><%- icon('chevronRight') %></a></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </section>
   </div>
 <% } %>
 <%- include('../../partials/footer') %>

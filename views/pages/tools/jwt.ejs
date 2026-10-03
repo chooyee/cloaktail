@@ -1,12 +1,15 @@
 <%- include('../../partials/header') %>
-<h1 class="text-2xl font-semibold">JWT decoder</h1>
-<p class="mt-1 max-w-2xl text-muted-foreground">
-  Read an OpenID Connect ID token or access token: header, claims and readable times. Paste the token, an
-  <code>Authorization: Bearer</code> header, a redirect URL with <code>#id_token=…</code>, or a whole token response; every JWT in it is found.
-</p>
-<%- include('../../fragments/decoder-tabs', { current: 'jwt' }) %>
+<header class="page-header">
+  <div class="min-w-0">
+    <h1 class="page-title">JWT decoder</h1>
+    <p class="page-description">Read an OpenID Connect ID token or access token: header, claims and readable times. Paste the token, an
+  <code>Authorization: Bearer</code> header, a redirect URL with <code>#id_token=…</code>, or a whole token response; every JWT in it is found.</p>
+  </div>
+  <div class="page-actions"><%- include('../../fragments/decoder-tabs', { current: 'jwt' }) %></div>
+</header>
 
-<div class="alert mt-6" role="note">
+<div class="alert mt-6" data-tone="success" role="note">
+  <%- icon('lock') %>
   <h2>Decoded in your browser</h2>
   <section>
     What you paste, including any key or secret, is never sent to the server. A valid access token lets anyone use it
@@ -198,7 +201,7 @@
     $('jwt-kind').textContent = d.encrypted ? 'Encrypted token' : (d.payload.typ === 'ID' ? 'ID token' : d.payload.typ === 'Bearer' ? 'Access token' : d.payload.typ === 'Refresh' ? 'Refresh token' : 'JWT');
     const [text, variant] = status(d);
     $('jwt-status').textContent = text;
-    $('jwt-status').dataset.variant = variant;
+    $('jwt-status').dataset.tone = { destructive: 'danger', outline: 'success' }[variant] || 'warning';
 
     const colours = ['text-rose-600 dark:text-rose-400', 'text-violet-600 dark:text-violet-400', 'text-sky-600 dark:text-sky-400', 'text-amber-600 dark:text-amber-400', 'text-emerald-600 dark:text-emerald-400'];
     $('jwt-encoded').replaceChildren(...d.parts.flatMap((part, i) => {

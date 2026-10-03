@@ -1,12 +1,15 @@
 <%- include('../../partials/header') %>
-<h1 class="text-2xl font-semibold">SAML decoder</h1>
-<p class="mt-1 max-w-2xl text-muted-foreground">
-  Turn a <code>SAMLRequest</code> or <code>SAMLResponse</code> into readable XML. Paste the whole redirect URL, a form body,
-  or just the encoded value: base64 (HTTP-POST binding) and base64 + DEFLATE (Redirect binding) are both detected.
-</p>
-<%- include('../../fragments/decoder-tabs', { current: 'saml' }) %>
+<header class="page-header">
+  <div class="min-w-0">
+    <h1 class="page-title">SAML decoder</h1>
+    <p class="page-description">Turn a <code>SAMLRequest</code> or <code>SAMLResponse</code> into readable XML. Paste the whole redirect URL, a form body,
+  or just the encoded value: base64 (HTTP-POST binding) and base64 + DEFLATE (Redirect binding) are both detected.</p>
+  </div>
+  <div class="page-actions"><%- include('../../fragments/decoder-tabs', { current: 'saml' }) %></div>
+</header>
 
-<div class="alert mt-6" role="note">
+<div class="alert mt-6" data-tone="success" role="note">
+  <%- icon('lock') %>
   <h2>Decoded in your browser</h2>
   <section>
     What you paste is never sent to the server. Responses can still hold personal data, so use test users only.

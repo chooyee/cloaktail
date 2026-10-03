@@ -8,8 +8,8 @@
       <dt class="text-muted-foreground">Valid</dt>
       <dd>
         <%= k.validFrom %> to <%= k.validTo %>
-        <% if (k.daysLeft < 0) { %><span class="badge ml-1" data-variant="destructive">Expired</span>
-        <% } else if (k.daysLeft < 30) { %><span class="badge ml-1" data-variant="destructive">Expires in <%= k.daysLeft %> days</span><% } %>
+        <% if (k.daysLeft < 0) { %><span class="badge ml-1" data-tone="danger">Expired</span>
+        <% } else if (k.daysLeft < 30) { %><span class="badge ml-1" data-tone="warning">Expires in <%= k.daysLeft %> days</span><% } %>
       </dd>
       <dt class="text-muted-foreground">SHA-256</dt><dd class="break-all font-mono text-xs"><%= k.fingerprint %></dd>
       <dt class="text-muted-foreground">Created</dt><dd><%= k.createdAt %> UTC<%= k.createdBy ? ` by ${k.createdBy}` : '' %></dd>
@@ -27,21 +27,25 @@
   </section>
 <% } %>
 
-<a href="/admin/keycloak/profiles/<%= profile.id %>" class="text-sm text-muted-foreground hover:underline">← <%= profile.name %></a>
-<h1 class="mt-2 text-2xl font-semibold">SAML signing certificate</h1>
-<p class="mt-1 max-w-3xl text-muted-foreground">
+<header class="page-header">
+<div class="min-w-0">
+<h1 class="page-title">SAML signing certificate</h1>
+<p class="page-description">
   On the domains of Keycloak profile <strong><%= profile.name %></strong>, CloakTail signs its SAML login and logout requests with this key.
   Keycloak checks those signatures with the certificate, so it must also be imported into the portal’s SAML client
   (<code><%= profile.settings.samlIssuer %></code> in realm <code><%= profile.settings.realm %></code>).
   Every profile has its own key. The private key is stored encrypted and never leaves the server.
 </p>
+</div>
+<div class="page-actions"><a href="/admin/keycloak/profiles/<%= profile.id %>" class="btn" data-variant="outline">Back to <%= profile.name %></a></div>
+</header>
 
 <div class="mt-6 grid gap-6 lg:grid-cols-[1fr_22rem]">
   <div class="grid gap-6 self-start">
     <%- include('../../fragments/form-status', { error: null, message }) %>
 
     <% if (pending) { %>
-      <div class="card border-amber-500/60">
+      <div class="card">
         <header>
           <h2>Pending replacement</h2>
           <p>Not used yet. CloakTail still signs with the active certificate below.</p>
@@ -63,7 +67,7 @@
 
     <div class="card">
       <header>
-        <h2 class="flex items-center gap-2">Active certificate <% if (active) { %><span class="badge">In use</span><% } %></h2>
+        <h2 class="flex items-center gap-2">Active certificate <% if (active) { %><span class="badge" data-tone="success">In use</span><% } %></h2>
         <% if (active) { %>
           <p>
             Imported into the portal SAML client? Then sign-in works.

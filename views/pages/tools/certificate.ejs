@@ -1,12 +1,17 @@
 <%- include('../../partials/header') %>
 <div id="cert-page">
-  <h1 class="text-2xl font-semibold">Certificate generator</h1>
-  <p class="mt-1 max-w-2xl text-muted-foreground">
+  <header class="page-header">
+  <div class="min-w-0">
+  <h1 class="page-title">Certificate generator</h1>
+  <p class="page-description">
     Create an RSA key pair and self-signed X.509 certificate (PEM) for your SAML service provider: to sign requests,
     or to receive encrypted assertions from Keycloak.
   </p>
+  </div>
+  </header>
 
-  <div class="alert mt-6" role="note">
+  <div class="alert mt-6" data-tone="warning" role="note">
+    <%- icon('alert') %>
     <h2>For sandbox testing only</h2>
     <section>
       The key is generated on the portal server and shown to you once; it is not stored. For production, generate keys on infrastructure you control
@@ -83,7 +88,7 @@
                 </div>
               </div>
               <textarea id="key-pem" rows="8" readonly class="font-mono text-xs"><%= result.privateKey %></textarea>
-              <p class="text-destructive">Secret. Save it now: it is not stored and can’t be shown again. Configure it only in your app, never in the portal.</p>
+              <p class="flex items-start gap-1.5 text-destructive"><%- icon('lock', 'mt-0.5 size-3.5 shrink-0') %><span>Secret. Save it now: it is not stored and can’t be shown again. Configure it only in your app, never in the portal.</span></p>
             </div>
           </section>
         </div>

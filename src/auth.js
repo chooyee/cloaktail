@@ -1,7 +1,7 @@
 import express from 'express';
 import passport from 'passport';
 import { Strategy as SamlStrategy, ValidateInResponseTo } from '@node-saml/passport-saml';
-import { config, samlUrlsFor, currentProfileId } from './config.js';
+import { config, samlUrlsFor, currentProfileId, currentTenant } from './config.js';
 import { upsertUser, getUserRoles, addUserRoleByName } from './db.js';
 import { destroySessions } from './session.js';
 import { idpCertCallback, loadIdpCerts } from './lib/idpCerts.js';
@@ -22,6 +22,30 @@ function checkPinnedCert(tenant) {
     },
     () => { /* Keycloak unreachable; nothing to compare against */ },
   );
+}
+
+// node-saml's signature errors don't say why; spell out the usual causes for the log.
+async function explainSignatureError(err, samlResponse, tenant) {
+  if (!/signature/i.test(err?.message || '') || !samlResponse) return '';
+  try {
+    const xml = Buffer.from(samlResponse, 'base64').toString('utf8');
+    const signedAt = (el) => new RegExp(`<(\\w+:)?${el}\\b[^>]*>\\s*(<(\\w+:)?Issuer\\b[^>]*>[^<]*</(\\w+:)?Issuer>\\s*)?<(\\w+:)?Signature\\b`).test(xml);
+    const responseSigned = signedAt('Response');
+    const assertionSigned = signedAt('Assertion');
+    const sent = [...xml.matchAll(/<(?:\w+:)?X509Certificate>([^<]+)</g)].map((m) => m[1].replace(/\s/g, ''));
+    const trusted = tenant.saml.idpCert ? [tenant.saml.idpCert] : await loadIdpCerts(tenant.saml.descriptorUrl);
+    const hints = [`response signed: ${responseSigned}, assertion signed: ${assertionSigned}`];
+    if (!responseSigned) hints.push(`turn on "Sign documents" for client "${tenant.saml.issuer}" in Keycloak`);
+    if (!assertionSigned) hints.push(`turn on "Sign assertions" for client "${tenant.saml.issuer}" in Keycloak`);
+    if (sent.length && !sent.some((c) => trusted.includes(c))) {
+      hints.push(tenant.saml.idpCert
+        ? 'the response is signed with a certificate other than the pinned one; clear or update the pinned certificate'
+        : 'the response is signed with a certificate the realm descriptor does not publish');
+    }
+    return ` (${hints.join('; ')})`;
+  } catch {
+    return '';
+  }
 }
 
 // ---------- strategy ----------
@@ -167,9 +191,11 @@ authRouter.get('/auth/login', requireSaml, (req, res, next) => {
 
 // Assertion Consumer Service: Keycloak POSTs the signed SAML Response here.
 authRouter.post('/saml/acs', requireSaml, express.urlencoded({ extended: false }), (req, res, next) => {
-  authenticateSaml(req, (err, user) => {
+  authenticateSaml(req, async (err, user) => {
     if (err || !user) {
-      console.error('SAML login failed:', err?.message || 'no user');
+      const tenant = currentTenant();
+      const why = tenant ? await explainSignatureError(err, req.body?.SAMLResponse, tenant) : '';
+      console.error('SAML login failed:', (err?.message || 'no user') + why);
       return res.redirect('/login?error=1');
     }
     // Fresh session on login (prevents session fixation).

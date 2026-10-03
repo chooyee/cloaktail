@@ -1,67 +1,132 @@
 <%- include('../partials/header') %>
-<h1 class="text-2xl font-semibold">Welcome, <%= user.firstName || user.username %></h1>
-<p class="mt-1 text-muted-foreground">Connect your application to Keycloak with SAML or OpenID Connect and test it in the <code><%= sandboxRealm %></code> sandbox realm.</p>
+<%
+  const pct = (n, max) => `${Math.min(100, Math.round((n / Math.max(max, 1)) * 100))}%`;
+  const tools = [
+    { href: '/tools/decode', icon: 'decoder', title: 'SAML decoder', text: 'Read a SAMLRequest or SAMLResponse.', show: true },
+    { href: '/tools/decode/jwt', icon: 'decoder', title: 'JWT decoder', text: 'Inspect and verify an ID or access token.', show: true },
+    { href: '/tools/certificate', icon: 'certificate', title: 'Certificate generator', text: 'Key pair for signed requests or encrypted assertions.', show: can('apps.own') },
+    { href: '/troubleshooting', icon: 'lifebuoy', title: 'Troubleshooting', text: 'Fixes for the common Keycloak SAML and OIDC errors.', show: true },
+  ].filter((t) => t.show);
+%>
+<header class="page-header">
+  <div class="min-w-0">
+    <h1 class="page-title">Welcome, <%= user.firstName || user.username %></h1>
+    <p class="page-description">Connect your application to Keycloak with SAML or OpenID Connect and test it in the <code><%= sandboxRealm %></code> sandbox realm.</p>
+  </div>
+  <% if (can('apps.own') && appCount < maxApps) { %>
+    <div class="page-actions"><a href="/apps/new" class="btn"><%- icon('plus') %>Register application</a></div>
+  <% } %>
+</header>
 
 <% if (can('apps.own')) { %>
   <% const steps = [
        { done: testUserCount > 0, title: 'Create a test user', text: 'A sandbox account to sign in with while testing.', href: '/test-users', action: 'Test users' },
-       { done: appCount > 0, title: 'Register your application', text: 'SAML: enter your SP entity ID and ACS URL, or import your SP metadata. OpenID Connect: enter your client ID and redirect URIs.', href: appCount ? '/apps' : '/apps/new', action: appCount ? 'Applications' : 'Register application' },
+       { done: appCount > 0, title: 'Register your application', text: 'SAML: enter your SP entity ID and ACS URL, or import your SP metadata. OpenID Connect: enter your client ID and redirect URIs.', href: appCount ? '/apps' : '/apps/new', action: appCount ? 'Applications' : 'Register' },
        { done: false, title: 'Test the connection', text: 'Sign in as a test user and inspect the SAML response or the tokens Keycloak issues.', href: '/apps', action: 'Open an application' },
-       { done: false, title: 'Configure your app', text: 'Copy the connection details from the application page into your SAML or OpenID Connect library.', href: '/apps', action: null },
-     ]; %>
-  <div class="card mt-8">
-    <header>
+       { done: false, title: 'Configure your app', text: 'Copy the connection details from the application page into your SAML or OpenID Connect library.', href: null, action: null },
+     ];
+     const doneCount = steps.filter((s) => s.done).length; %>
+
+  <%# ---------- At a glance ---------- %>
+  <div class="mt-8 grid gap-4 sm:grid-cols-3">
+    <a href="/apps" class="card gap-3 py-5 transition-colors hover:bg-muted/40">
+      <section class="px-5">
+        <p class="text-sm text-muted-foreground">Applications</p>
+        <p class="mt-1 text-2xl font-semibold tabular-nums"><%= appCount %> <span class="text-sm font-normal text-muted-foreground">of <%= maxApps %></span></p>
+      </section>
+      <section class="px-5"><div class="meter"><span style="width: <%= pct(appCount, maxApps) %>"></span></div></section>
+    </a>
+    <a href="/test-users" class="card gap-3 py-5 transition-colors hover:bg-muted/40">
+      <section class="px-5">
+        <p class="text-sm text-muted-foreground">Test users</p>
+        <p class="mt-1 text-2xl font-semibold tabular-nums"><%= testUserCount %> <span class="text-sm font-normal text-muted-foreground">of <%= maxTestUsers %></span></p>
+      </section>
+      <section class="px-5"><div class="meter"><span style="width: <%= pct(testUserCount, maxTestUsers) %>"></span></div></section>
+    </a>
+    <div class="card gap-3 py-5">
+      <section class="px-5">
+        <p class="text-sm text-muted-foreground">Sandbox realm</p>
+        <p class="mt-1 truncate font-mono text-xl font-semibold"><%= sandboxRealm %></p>
+      </section>
+      <section class="flex flex-wrap gap-x-4 gap-y-1 px-5 text-xs">
+        <a href="<%= sandbox.descriptorUrl %>" class="text-primary hover:underline">SAML metadata</a>
+        <a href="<%= sandbox.discoveryUrl %>" class="text-primary hover:underline">OIDC discovery</a>
+      </section>
+    </div>
+  </div>
+
+  <%# ---------- Getting started ---------- %>
+  <section class="page-section mt-8">
+    <div class="section-intro">
       <h2>Getting started</h2>
-      <p><%= appCount %> of <%= maxApps %> applications · <%= testUserCount %> of <%= maxTestUsers %> test users</p>
-    </header>
-    <section>
-      <ol class="grid gap-4">
+      <p><%= doneCount %> of <%= steps.length %> steps done.</p>
+      <div class="meter mt-3 max-w-40"><span style="width: <%= pct(doneCount, steps.length) %>"></span></div>
+    </div>
+    <div class="section-body">
+      <ol class="card divide-y gap-0 py-0">
         <% steps.forEach((step, i) => { %>
-          <li class="flex items-start gap-4">
-            <span class="flex size-7 shrink-0 items-center justify-center rounded-full border text-sm font-medium
-                         <%= step.done ? 'bg-primary text-primary-foreground border-primary' : '' %>"><%= step.done ? '✓' : i + 1 %></span>
-            <div class="flex-1">
-              <p class="font-medium"><%= step.title %></p>
-              <p class="text-sm text-muted-foreground"><%= step.text %></p>
+          <li class="flex items-start gap-4 px-5 py-4">
+            <span class="marker mt-0.5" <%= step.done ? 'data-done' : '' %>>
+              <% if (step.done) { %><%- icon('check', 'size-3.5') %><span class="sr-only">Done:</span><% } else { %><%= i + 1 %><% } %>
+            </span>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium <%= step.done ? 'text-muted-foreground' : '' %>"><%= step.title %></p>
+              <p class="mt-0.5 text-sm text-muted-foreground"><%= step.text %></p>
             </div>
             <% if (step.action) { %>
-              <a href="<%= step.href %>" class="btn" data-variant="<%= step.done ? 'ghost' : 'outline' %>" data-size="sm"><%= step.action %></a>
+              <a href="<%= step.href %>" class="btn shrink-0" data-variant="<%= step.done ? 'ghost' : 'outline' %>" data-size="sm"><%= step.action %></a>
             <% } %>
           </li>
         <% }) %>
       </ol>
-    </section>
-  </div>
+    </div>
+  </section>
 <% } %>
 
-<div class="mt-6 grid gap-6 md:grid-cols-2">
-  <div class="card">
-    <header>
-      <h2>Your account</h2>
-      <p>From the Keycloak sign-in.</p>
-    </header>
-    <section>
-      <dl class="grid grid-cols-[8rem_1fr] gap-y-2 text-sm">
-        <dt class="text-muted-foreground">Username</dt><dd><%= user.username %></dd>
-        <dt class="text-muted-foreground">Email</dt><dd><%= user.email || '—' %></dd>
-        <dt class="text-muted-foreground">Name</dt><dd><%= [user.firstName, user.lastName].filter(Boolean).join(' ') || '—' %></dd>
-      </dl>
-    </section>
+<%# ---------- Tools ---------- %>
+<section class="page-section">
+  <div class="section-intro">
+    <h2>Tools</h2>
+    <p>Debug messages and prepare keys without leaving the portal.</p>
   </div>
+  <div class="section-body">
+    <ul class="grid gap-3 sm:grid-cols-2">
+      <% for (const t of tools) { %>
+        <li>
+          <a href="<%= t.href %>" class="card h-full flex-row items-start gap-3 p-4 transition-colors hover:bg-muted/40">
+            <span class="icon-tile"><%- icon(t.icon) %></span>
+            <span class="min-w-0">
+              <span class="block text-sm font-medium"><%= t.title %></span>
+              <span class="mt-0.5 block text-xs text-muted-foreground"><%= t.text %></span>
+            </span>
+          </a>
+        </li>
+      <% } %>
+    </ul>
+  </div>
+</section>
 
-  <div class="card">
-    <header>
-      <h2>Your portal roles</h2>
-      <p>Managed in this portal, not in Keycloak.</p>
-    </header>
-    <section class="flex flex-wrap gap-2">
-      <% if (userRoles.length === 0) { %>
-        <span class="text-sm text-muted-foreground">No roles assigned.</span>
-      <% } %>
-      <% for (const role of userRoles) { %>
-        <span class="badge" data-variant="secondary"><%= role.name %></span>
-      <% } %>
-    </section>
+<%# ---------- Account ---------- %>
+<section class="page-section">
+  <div class="section-intro">
+    <h2>Your account</h2>
+    <p>Profile from the Keycloak sign-in. Roles are managed in this portal.</p>
   </div>
-</div>
+  <div class="section-body">
+    <div class="card py-5">
+      <section class="px-5">
+        <dl class="kv">
+          <dt>Username</dt><dd class="font-medium"><%= user.username %></dd>
+          <dt>Email</dt><dd><%= user.email || '—' %></dd>
+          <dt>Name</dt><dd><%= [user.firstName, user.lastName].filter(Boolean).join(' ') || '—' %></dd>
+          <dt>Portal roles</dt>
+          <dd class="flex flex-wrap gap-1.5">
+            <% for (const role of userRoles) { %><span class="badge" data-variant="secondary"><%= role.name %></span><% } %>
+            <% if (userRoles.length === 0) { %><span class="text-muted-foreground">No roles assigned.</span><% } %>
+          </dd>
+        </dl>
+      </section>
+    </div>
+  </div>
+</section>
 <%- include('../partials/footer') %>
